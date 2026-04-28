@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smartsched-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: smartsched
+      POSTGRES_PASSWORD: smartsched
+      POSTGRES_DB: smartsched
+    ports:
+      - "5432:5432"
+    volumes:
+      - smartsched_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartsched"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  smartsched_pg_data:
