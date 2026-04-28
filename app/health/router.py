@@ -1,5 +1,9 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from app.core.config import Settings, get_settings
 
 router = APIRouter(tags=["health"])
 
@@ -10,8 +14,5 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    from app.core.config import get_settings
-
-    settings = get_settings()
+async def health(settings: Annotated[Settings, Depends(get_settings)]) -> HealthResponse:
     return HealthResponse(status="ok", environment=settings.environment)

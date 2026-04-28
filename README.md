@@ -13,32 +13,40 @@ Postgres / Cloud SQL para la web de Smartsched.
 
 ## Estructura
 
+Organización **por dominios**: cada feature de negocio vive en `app/domains/<x>/`
+como carpeta autocontenida (router, schemas, service, models, repository). Los
+clientes hacia sistemas externos (Vertex AI, etc.) son adapters y van en
+`app/integrations/`. Lo transversal (config, DB, health) vive aparte.
+
 ```
 app/
-├── main.py                     # crea la FastAPI app
-├── core/config.py              # settings desde env
+├── main.py                          # crea la FastAPI app
+├── core/
+│   └── config.py                    # settings desde env
 ├── api/v1/
-│   ├── router.py               # agrega routers v1
-│   └── routers/
-│       ├── health.py
-│       └── chat.py             # ejemplo de feature slice
-├── schemas/                    # pydantic (request/response)
-│   └── chat.py
-├── services/                   # lógica de negocio
-│   └── chat.py
-├── agents/                     # cliente hacia Vertex AI / ulima-agent
-│   └── ulima_agent.py
+│   └── router.py                    # agrega los routers de cada dominio
+├── domains/                         # ← lógica de negocio
+│   └── chat/
+│       ├── router.py                # endpoints HTTP
+│       ├── schemas.py               # pydantic (request/response)
+│       └── service.py               # lógica de negocio
+├── integrations/                    # ← adapters a sistemas externos
+│   └── agent/
+│       └── ulima_agent.py           # cliente hacia Vertex AI / ulima-agent
+├── health/                          # liveness/readiness
+│   └── router.py
 └── db/
-    ├── base.py                 # Base SQLAlchemy
-    ├── session.py              # engine + sesión async
-    └── migrations/             # Alembic
+    ├── base.py                      # Base SQLAlchemy
+    ├── session.py                   # engine + sesión async
+    └── migrations/                  # Alembic
 tests/
 ```
 
-> **Nota:** `app/models/` y `app/repositories/` se agregan cuando aparezca el primer
-> recurso persistido (ej. usuarios, horarios). Para entonces, cada feature sigue el
-> patrón: `routers/<x>.py` → `services/<x>.py` → `repositories/<x>.py` → `models/<x>.py`
-> + `schemas/<x>.py`.
+> **Nota:** cuando aparezca el primer recurso persistido (ej. `users`, `schedules`)
+> se crea `app/domains/<x>/` con: `router.py`, `schemas.py`, `service.py`,
+> `models.py`, `repository.py`. Registrá los `models` en `app/db/migrations/env.py`
+> para que Alembic los detecte en autogenerate, y agregá el router en
+> `app/api/v1/router.py`.
 
 ## Setup local
 

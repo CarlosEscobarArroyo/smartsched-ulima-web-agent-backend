@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.core.config import get_settings
 from app.db.base import Base
 
-# Importa aquí los módulos de modelos para que Alembic los detecte en autogenerate.
-# Ejemplo: from app.models import user, schedule  # noqa: F401
+# Importa aquí los models de cada dominio para que Alembic los detecte en autogenerate.
+# Ej.:  from app.users.models import User
+#       from app.schedules.models import Schedule
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

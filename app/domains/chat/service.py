@@ -1,7 +1,7 @@
 import uuid
 
-from app.agents.ulima_agent import UlimaAgentClient
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.domains.chat.schemas import ChatRequest, ChatResponse
+from app.integrations.agent.ulima_agent import UlimaAgentClient
 
 
 class ChatService:
