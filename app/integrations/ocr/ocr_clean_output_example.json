@@ -1,0 +1,172 @@
+{
+  "cursos": [
+    {
+      "codigo": "1419",
+      "nombre": "COMUNICACIÓN DE DATOS",
+      "creditos": 3.0,
+      "nivel": 5,
+      "secciones": [
+        {
+          "seccion": "523",
+          "profesor": "TORRES PAREDES CARLOS MARTIN",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MIE", "inicio": "11:00", "fin": "13:00", "aula": "850014"},
+            {"dia": "VIE", "inicio": "11:00", "fin": "13:00", "aula": "850014"}
+          ]
+        },
+        {
+          "seccion": "524",
+          "profesor": "ARGANDOÑA MARTINEZ FELIPE DANIEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "11:00", "fin": "13:00", "aula": "850016"},
+            {"dia": "JUE", "inicio": "11:00", "fin": "13:00", "aula": "850016"}
+          ]
+        },
+        {
+          "seccion": "525",
+          "profesor": "MARCELO SANCHEZ VICTOR HUGO",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "12:00", "fin": "13:00", "aula": "850014"},
+            {"dia": "VIE", "inicio": "12:00", "fin": "13:00", "aula": "850014"}
+          ]
+        },
+        {
+          "seccion": "520",
+          "profesor": "QUIROZ VILLALOBOS LENNIN PAUL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "JUE", "inicio": "11:00", "fin": "12:00", "aula": "850018"},
+            {"dia": "SAB", "inicio": "11:00", "fin": "13:00", "aula": "850016"}
+          ]
+        }
+      ]
+    },
+    {
+      "codigo": "1506",
+      "nombre": "INVESTIGACIÓN DE OPERACIONES I",
+      "creditos": 3.0,
+      "nivel": 8,
+      "secciones": [
+        {
+          "seccion": "601",
+          "profesor": "MACHUCA DE PINA JUAN MANUEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "17:00", "fin": "19:00", "aula": null},
+            {"dia": "MIE", "inicio": "17:00", "fin": "19:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "802",
+          "profesor": "MACHUCA DE PINA JUAN MANUEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "11:00", "fin": "13:00", "aula": null},
+            {"dia": "JUE", "inicio": "11:00", "fin": "13:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "603",
+          "profesor": "LOPEZ SANDOVAL EDUARDO ROMEO",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "17:00", "fin": "19:00", "aula": null},
+            {"dia": "MIE", "inicio": "17:00", "fin": "19:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "804",
+          "profesor": "LOPEZ SANDOVAL EDUARDO ROMEO",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MIE", "inicio": "15:00", "fin": "17:00", "aula": null},
+            {"dia": "VIE", "inicio": "15:00", "fin": "17:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "608",
+          "profesor": "CAPCHA SANCHEZ FIORELLA",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "11:00", "fin": "13:00", "aula": null},
+            {"dia": "MAR", "inicio": "11:00", "fin": "13:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "807",
+          "profesor": "TUPIA DE LA CRUZ ELMER LUIS",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "20:00", "fin": "22:00", "aula": null},
+            {"dia": "JUE", "inicio": "20:00", "fin": "22:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "812",
+          "profesor": "BRESCIANI CHAVEZ FERNANDO MANUEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "17:00", "fin": "19:00", "aula": null},
+            {"dia": "JUE", "inicio": "17:00", "fin": "19:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "814",
+          "profesor": "AVILA GONZALES DE TRINIDAD MARIA DEL ROCIO",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MIE", "inicio": "09:00", "fin": "11:00", "aula": null},
+            {"dia": "VIE", "inicio": "09:00", "fin": "11:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "615",
+          "profesor": "CABRERA GIL GRADOS EZILDA MARIA",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "11:00", "fin": "13:00", "aula": null},
+            {"dia": "MIE", "inicio": "11:00", "fin": "13:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "818",
+          "profesor": "TUPIA DE LA CRUZ ELMER LUIS",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "LUN", "inicio": "16:00", "fin": "18:00", "aula": null},
+            {"dia": "MIE", "inicio": "15:00", "fin": "17:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "618",
+          "profesor": "UGARTE GOMEZ JOSE LUIS",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MIE", "inicio": "18:00", "fin": "20:00", "aula": null},
+            {"dia": "VIE", "inicio": "18:00", "fin": "20:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "810",
+          "profesor": "GUERRA HUAMAN MOISES DANIEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "11:00", "fin": "13:00", "aula": null},
+            {"dia": "VIE", "inicio": "11:00", "fin": "13:00", "aula": null}
+          ]
+        },
+        {
+          "seccion": "622",
+          "profesor": "BRESCIANI CHAVEZ FERNANDO MANUEL",
+          "vacantes": 0,
+          "horario": [
+            {"dia": "MAR", "inicio": "15:00", "fin": "17:00", "aula": null}
+          ]
+        }
+      ]
+    }
+  ]
+}
