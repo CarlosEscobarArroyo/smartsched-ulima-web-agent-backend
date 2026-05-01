@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     gcp_location: str = "us-central1"
     ulima_agent_endpoint: str | None = None
 
+    google_application_credentials: str | None = Field(
+        default=None,
+        description=(
+            "Ruta al JSON del service account para Cloud Vision. Si es None se usan "
+            "Application Default Credentials (gcloud auth application-default login en local)."
+        ),
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
