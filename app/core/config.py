@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     gcp_project_id: str | None = None
     gcp_location: str = "us-central1"
+    gcp_bucket_name: str = "bucket-quickstart_ulima-smartcsched"
     ulima_agent_endpoint: str | None = None
 
     google_application_credentials: str | None = Field(
