@@ -32,3 +32,12 @@ def detect_document_text(image_bytes: bytes) -> dict:
     if response.error.message:
         raise RuntimeError(f"Cloud Vision error: {response.error.message}")
     return MessageToDict(response._pb, preserving_proto_field_name=False)
+
+
+def extract_full_text(raw_ocr: dict) -> str:
+    """Extrae el texto plano de la respuesta cruda de Cloud Vision.
+
+    El texto extraído debe pasarse al agente LLM, que lo estructura en el
+    formato ``{"cursos": [...]}`` esperado por ``parse_ocr_to_sections``.
+    """
+    return raw_ocr.get("fullTextAnnotation", {}).get("text", "")
