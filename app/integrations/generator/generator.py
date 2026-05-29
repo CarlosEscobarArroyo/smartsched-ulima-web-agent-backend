@@ -1,9 +1,8 @@
 from __future__ import annotations
+
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import time
-from itertools import combinations
-from typing import Iterable, Iterator
-
 
 Day = int
 
