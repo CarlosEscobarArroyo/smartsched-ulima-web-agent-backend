@@ -4,6 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## ⚠️ GCP — PROYECTO OBLIGATORIO (NO USAR OTRO)
+
+**Todo este proyecto (frontend, backend y agente ADK) se despliega y opera EXCLUSIVAMENTE en:**
+
+- **Project ID** (lo que usan `gcloud`/deploy): **`ulima-agent`**
+- **Project name** (display, NO usar como ID): `smartsched-ulima`
+- **Project number:** `563034868757`
+- **Cuenta con acceso:** `carlos.escobar.arroyo@gmail.com`
+
+⚠️ Ojo: `smartsched-ulima` es el **nombre**, no el ID. El ID real es **`ulima-agent`**. NUNCA usar otro proyecto GCP (p. ej. `pe-fcor-ec-coea-explore-dev` u otro que aparezca en `gcloud config`). Antes de cualquier `gcloud`/`gsutil`/deploy, fijar el proyecto:
+
+```bash
+gcloud config set project ulima-agent
+```
+
+Aplica a Cloud Run, Cloud Build, Vertex AI (agente), Cloud Storage (bucket OCR), Cloud Vision, Artifact Registry y todo recurso GCP.
+
+---
+
 ## NAVEGACION ENTRE REPOSITORIOS — LEER SIEMPRE
 
 Este CLAUDE.md vive en el **backend**: `smartsched-ulima-web-agent-backend`.
@@ -94,6 +113,119 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 - **`src/app/`** — App Router con route groups: `(public)/` (login) y `(protected)/` (dashboard, generator, ai-agent, professors, profile, settings, admin/*).
 - **`src/features/<nombre>/`** — feature modules autocontenidos (components, hooks, api, types, schemas). Features actuales: `auth`, `dashboard`, `schedule-generator`, `ai-agent`, `professors`, `profile`, `settings`, `admin/` (accounts, courses, professors).
 - **`src/components/ui/`** — componentes reutilizables (Button, Input, Card, Dialog, Select, etc.).
+
+---
+
+## Estado de integración Frontend ↔ Backend
+
+> **Auditoría: 2026-05-28** (snapshot point-in-time — verificar contra el código antes de citar).
+> Esta sección es el punto de partida real para conectar ambos repos. Reemplaza cualquier
+> creencia previa de que las historias ya estaban "cerradas": **a hoy NO hay ninguna historia
+> conectada de extremo a extremo (FE↔BE).**
+
+> **🟢 Actualización 2026-05-29 — US-12 (Agente IA) conectada FE↔BE (fase in-memory).**
+> Es la **primera historia conectada de extremo a extremo**. Resumen de lo construido:
+> - **Agente ADK real** en proyecto embebido `ulima-agent/` (paquete `ulima_agent`, scaffold `agents-cli`),
+>   corriendo **in-process** en el backend vía `InMemoryRunner.run_async` (NO Agent Engine remoto).
+>   Conectado como dependencia editable (`[tool.uv.sources]`). Modelo `gemini-flash-latest`,
+>   instrucción en español (asesor académico, 3 temas), solo conocimiento del LLM (sin tools de datos).
+> - **GCP:** usa el proyecto **`ulima-agent`** (pineado en `ulima_agent/agent.py` vía `GOOGLE_CLOUD_PROJECT`).
+> - **Endpoints chat:** `POST /chat`, `GET/POST/DELETE /chat/conversations`, `GET /chat/conversations/{id}`.
+>   Conversaciones **in-memory** (`app/domains/chat/store.py`) — sin DB, sin auth (decisión de fase).
+> - **Avatar** del agente servido desde el backend en `/static/chatbot.png` (mount `StaticFiles`).
+> - **Frontend** `features/ai-agent`: mocks reemplazados por llamadas reales (`api.ts`), un solo botón
+>   "Nueva conversación" (sin los 3 modos), layout full-bleed, eliminar conversaciones, avatar.
+> - **Pendiente para cerrar la DoD formal:** CA-2 auth real (US-24), CA-3 (<3s) sin medir, persistencia
+>   `Conversation`/`Message` + Alembic, eval del agente, deploy a Cloud Run, code review + merge. Sin commitear aún.
+
+### Resumen ejecutivo
+
+- **Backend = esqueleto.** Solo 3 routers montados en `app/api/v1/router.py` (health, chat, upload). Sin auth, sin persistencia real, sin migraciones.
+- **Frontend = prototipo mock.** ~25 *server actions* (`'use server'`) devuelven datos hardcodeados con `setTimeout`. **No existe un cliente HTTP compartido.** La única llamada de red real apunta a un endpoint OCR que el backend aún no expone (y cae a un JSON local de respaldo).
+- **Modelos de dominio son `dataclasses`, no SQLAlchemy** → nada se persiste todavía.
+
+### Endpoints backend realmente vivos hoy
+
+> Tabla actualizada al **2026-05-29** (incluye US-12).
+
+| Método | Ruta | Real | Notas |
+|---|---|---|---|
+| GET | `/api/v1/health` | ✅ | status + environment |
+| POST | `/api/v1/chat` | ✅ | Agente ADK real in-process. Body `{conversation_id, message}` → `{reply, conversation_id}`. Sin auth. |
+| GET | `/api/v1/chat/conversations` | ✅ | lista conversaciones (in-memory) |
+| POST | `/api/v1/chat/conversations` | ✅ | crea conversación (in-memory) |
+| GET | `/api/v1/chat/conversations/{id}` | ✅ | detalle con mensajes |
+| DELETE | `/api/v1/chat/conversations/{id}` | ✅ | elimina conversación |
+| GET | `/static/chatbot.png` | ✅ | avatar del agente (StaticFiles) |
+| POST | `/api/v1/upload/` | ✅ | sube 1 archivo a GCS |
+| POST | `/api/v1/upload/multiple/` | ✅ | sube varios archivos a GCS |
+
+**Vacíos / inexistentes:** `app/domains/schedules/{router,service,schemas}.py` están a 0 bytes. No hay dominios de `auth`, `admin`, `professors/reviews`, ni endpoint `ocr/*` ni `schedules/*`. Las conversaciones de chat existen pero **in-memory** (`app/domains/chat/store.py`), aún sin modelos SQLAlchemy ni persistencia. El generador (`app/integrations/generator/generator.py`, backtracking) **funciona pero no está expuesto por HTTP**. `db/migrations/versions/` solo tiene `.gitkeep` y `env.py` no importa modelos. `python-jose` y `passlib[bcrypt]` ya están en `pyproject.toml` pero sin código de auth.
+
+### Estado del frontend (capa de datos)
+
+- **Sin infraestructura compartida:** no hay `lib/http`, `apiClient`, axios, SWR ni React Query. Cada feature resuelve (o simula) su red por su cuenta.
+- **Auth 100% mock:** `features/auth/loginAction.ts` valida contra `features/auth/testCredentials.ts` (cuentas fijas: `alumno@ulima.edu.pe / Alumno123`, `admin@ulima.edu.pe / Admin1234`). La sesión se guarda en `localStorage['smartsched.session']` = `{ user: { id, email, name, role }, expiresAt }`. `AuthGuard.tsx` solo lee ese localStorage client-side (sin validación en backend). Sin JWT, sin Google login.
+- **Única llamada real:** `features/schedule-generator/extractCoursesFromFile.ts` → `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` (FormData campo `files`), con **fallback** a `ocr_clean_output_example.json` si falla. Como el backend no tiene ese endpoint, en la práctica siempre usa el fallback local.
+- **Generación de horarios:** corre **client-side** en `generateSchedules.ts` (backtracking en JS, `MAX_OPTIONS=20`), no toca el backend.
+
+### Matriz de historias — ¿qué es "funcional" hoy?
+
+Dos sentidos distintos. **Conectado FE↔BE = 0 en todas.** "Funciona en UI" = la pantalla opera de forma autónoma (estado cliente o mock).
+
+| US | Frontend hoy | Backend hoy | Conectado | Qué falta |
+|---|---|---|---|---|
+| US-01 Subir imagen (OCR) | UI completa; fetch real con fallback a JSON local | ❌ no existe `/ocr/process-image` (solo `/upload`) | ❌ | crear endpoint OCR y alinear contrato |
+| US-02 Subir otra imagen | merge en estado cliente | n/a | ⚠️ depende de OCR | — |
+| US-03 Añadir manual | estado cliente | n/a | ✅ FE puro | no requiere backend |
+| US-04 Eliminar fila | estado cliente | n/a | ✅ FE puro | no requiere backend |
+| US-05 Editar fila | estado cliente | n/a | ✅ FE puro | no requiere backend |
+| US-06 Horas no disponibles | grid en estado cliente | n/a | ✅ FE puro | enviar bloques al generador |
+| US-07 Generar combinaciones | **client-side** (JS) | generador existe como lib, no expuesto | ❌ | **DECISIÓN: mover a endpoint backend** |
+| US-08 Visualizar horarios | navegación cliente | n/a | ✅ FE puro | no requiere backend |
+| US-09 Guardar horario | mock (perfil con horarios fijos; botón "Guardar" sin handler) | ❌ no existe | ❌ | modelo + CRUD + auth |
+| US-12 Chat IA | ✅ conectado (real) | ✅ agente ADK real in-process + conversaciones in-memory | 🟢 **SÍ (in-memory)** | falta: auth real (US-24), persistencia DB, <3s, eval, deploy |
+| US-21 Reseñas profesores | mock | ❌ no existe | ❌ | modelos Professor/Review + endpoints |
+| US-24 Iniciar sesión | mock (testCredentials/localStorage) | ❌ no existe | ❌ | **linchpin**: auth real |
+| US-25 Restablecer contraseña | mock (muta credenciales en memoria) | ❌ no existe | ❌ | tokens + email |
+| US-29 Crear usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
+| US-30 Modificar usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
+| US-31 Eliminar usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
+| US-32 Crear cursos (admin) | mock (sin "publicar") | ❌ no existe | ❌ | modelos Course/Section + endpoints |
+| (admin CRUD profesores) | mock | ❌ no existe | ❌ | sin US numerada; existe en el FE |
+
+**Lectura rápida:** funcionan hoy en la UI por sí solas (FE puro, no necesitan backend) **US-03, US-04, US-05, US-06, US-08**; US-02 y US-07 también operan en cliente pero US-07 debe migrar al backend. Todo lo que implica **persistencia, auth o IA** (US-09, US-12, US-21, US-24, US-25, US-29–US-32) está mock y requiere construir el backend desde cero.
+
+### Lo que falta para conectar (trabajo transversal)
+
+1. **Auth real (JWT).** Bloquea casi todo lo protegido. Modelo `User` SQLAlchemy + login/roles/bloqueo + `get_current_user` + `require_role("admin")`.
+2. **Persistencia.** Convertir las `dataclasses` de `users/` y `schedules/` en modelos SQLAlchemy, crear las **primeras migraciones Alembic** e importarlas en `app/db/migrations/env.py`.
+3. **Cliente HTTP compartido en el FE.** Crear `src/lib/http/apiClient.ts` con base `NEXT_PUBLIC_API_URL` + header `Authorization`, y un contexto/manejo de sesión.
+4. **Reemplazar las ~25 server actions mock** por llamadas reales y reemplazar el `AuthGuard` mock por validación contra el backend.
+5. **Construir los routers faltantes:** `ocr`, `schedules` (generate + saved), `auth`, `admin` (users + courses), `professors/reviews`, `conversations`.
+6. **Alinear contratos** (ver abajo) y **reemplazar el stub del agente IA** por la integración real en Vertex AI.
+
+### Decisiones tomadas (2026-05-28)
+
+- **Generación de horarios → backend.** Se expondrá `POST /api/v1/schedules/generate` reutilizando `app/integrations/generator/generator.py`; el FE dejará de generar client-side. (Implementa la US-07 al pie: timeout 2 min, límite de combinaciones.)
+- **Estrategia de sesión/token → PENDIENTE** ("después veremos"). Opciones en evaluación: cookie HttpOnly (recomendada, encaja con los *server actions* de Next y es más segura ante XSS) vs. localStorage + `Bearer` (menos cambios sobre lo actual).
+- **Esta fase = solo planear y documentar.** No se implementa código de conexión todavía.
+
+### Contratos a respetar al construir el backend
+
+> 📄 **Detalle completo en [`CONTRACTS.md`](./CONTRACTS.md)** — tabla endpoint por endpoint (método, ruta, request/response exactos, validaciones Zod y mismatches) derivada del código real del frontend. Es el blueprint para construir el backend.
+
+
+- **OCR:** el FE hace `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` con FormData campo `files` (múltiple) y espera
+  `{ "cursos": [ { codigo, nombre, creditos, nivel, secciones: [ { seccion, profesor, vacantes, horario: [ { dia, inicio, fin, aula } ] } ] } ] }`.
+  ⚠️ **Mismatch:** el backlog de US-01 nombra el endpoint `/ocr/extract`. Hay que **unificar el nombre** (renombrar en FE o en BE). El parser `parse_ocr_to_sections()` ya consume el shape `{cursos:[{nombre, secciones:[{seccion, horario:[{dia,inicio,fin}]}]}]}` con `DAY_MAP` (LUN/MAR/MIE/JUE/VIE/SAB/DOM).
+- **Sesión:** el FE actual usa `localStorage['smartsched.session'] = { user: { id, email, name, role }, expiresAt }`. El backend de auth deberá producir algo compatible o el FE deberá adaptarse cuando se decida la estrategia de token.
+
+### Roadmap de conexión por fases (propuesto, sin implementar aún)
+
+- **Fase 0 — Fundaciones:** modelos SQLAlchemy + Alembic base · auth (login/JWT/roles/bloqueo, US-24/25) · cliente HTTP + sesión en el FE · `AuthGuard` real.
+- **Fase 1 — Flujo core del generador:** endpoint OCR real (Vision + agente → `{cursos}`) · `POST /schedules/generate` · guardar horarios (modelo + CRUD, US-09) · conectar el wizard (US-01/02/06/07/08/09).
+- **Fase 2 — Resto:** chat real + conversaciones (US-12) · profesores + reseñas (US-21) · admin usuarios/cursos (US-29–US-32, con "publicar").
 
 ---
 
@@ -632,6 +764,14 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 ## US-12 — Iniciar Nueva Conversación (Agente IA)
 
 **Sprint:** 02
+
+> **🟢 Estado 2026-05-29 — MVP funcional conectado FE↔BE (fase in-memory).**
+> Hecho: agente ADK real in-process (proyecto `ulima-agent/`, `gemini-flash-latest`, proyecto GCP `ulima-agent`),
+> endpoints `POST /chat` + `GET/POST/DELETE /chat/conversations` (in-memory), frontend `features/ai-agent`
+> conectado (sin mocks, un solo botón "Nueva conversación", layout full-bleed, eliminar conversaciones,
+> avatar servido en `/static/chatbot.png`). CA-1 ✅. Tests backend (`tests/test_chat.py`) + lint OK.
+> **Pendiente DoD:** CA-2 (auth real → US-24), CA-3 (<3s sin medir), persistencia `Conversation`/`Message` + Alembic
+> (hoy in-memory por decisión), eval del agente, deploy a Cloud Run, code review + merge a QA, commit.
 
 ### Criterios de aceptación
 

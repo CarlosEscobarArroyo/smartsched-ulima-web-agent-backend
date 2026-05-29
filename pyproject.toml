@@ -21,7 +21,12 @@ dependencies = [
     "google-cloud-storage>=3.10.1",
     "python-dotenv>=1.2.2",
     "python-multipart>=0.0.29",
+    # Agente IA (US-12): proyecto ADK embebido, corre in-process en el backend.
+    "ulima-agent",
 ]
+
+[tool.uv.sources]
+ulima-agent = { path = "ulima-agent", editable = true }
 
 [dependency-groups]
 dev = [
