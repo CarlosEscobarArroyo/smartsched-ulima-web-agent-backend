@@ -74,6 +74,7 @@ type Session = { user: User; expiresAt: string };
 
 ### OCR — `POST /api/v1/ocr/process-image`
 - **Request:** `multipart/form-data`, clave **`files`** = `File[]`. Cliente valida: ≥1 archivo; tipos `application/pdf, image/png, image/jpeg, image/webp`; **≤10 MB** c/u.
+  - ⚠️ **Decisión backend (2026-05-29): solo imágenes.** El backend acepta únicamente `image/png`, `image/jpeg`, `image/webp` (≤10 MB) y **rechaza PDF** (422). Procesamiento **inline** con Cloud Vision (`vision.Image(content=bytes)`, OCR síncrono) — **sin subir a GCS**. El cliente FE aún declara `application/pdf`; si se quisieran PDFs habría que reintroducir GCS + el modo *async batch* de Vision. `/api/v1/upload` (bucket) NO participa de este flujo.
 - **Response (FE espera):**
 ```json
 { "cursos": [ {

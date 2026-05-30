@@ -100,9 +100,9 @@ FastAPI + SQLAlchemy async + asyncpg + Alembic + Google Cloud (Vision, Storage, 
 
 ### Flujo OCR → generación de horarios
 
-1. Imagen subida a GCS vía `/api/v1/upload`.
-2. OCR con Cloud Vision (`detect_document_text`).
-3. Texto plano extraído (`extract_full_text`) → agente LLM lo estructura a JSON `{"cursos": [...]}`.
+1. Imagen(es) enviada(s) a `/api/v1/ocr/process-image` (inline, sin GCS).
+2. **Gemini multimodal** (`ocr/structurer.py`) recibe la imagen DIRECTA y devuelve JSON `{"cursos": [...]}`. Ya **no** se usa Cloud Vision para aplanar a texto (destruía la estructura de la tabla y el modelo asignaba mal los horarios). `ocr/client.py` quedó huérfano.
+3. `service._merge_courses()` agrupa de forma determinista los cursos que el modelo a veces emite duplicados (uno por sección).
 4. `parse_ocr_to_sections()` → lista de `ClassSection`.
 5. `generate_schedules()` → combinaciones sin conflicto via backtracking.
 
@@ -140,13 +140,13 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 
 ### Resumen ejecutivo
 
-- **Backend = esqueleto.** Solo 3 routers montados en `app/api/v1/router.py` (health, chat, upload). Sin auth, sin persistencia real, sin migraciones.
-- **Frontend = prototipo mock.** ~25 *server actions* (`'use server'`) devuelven datos hardcodeados con `setTimeout`. **No existe un cliente HTTP compartido.** La única llamada de red real apunta a un endpoint OCR que el backend aún no expone (y cae a un JSON local de respaldo).
-- **Modelos de dominio son `dataclasses`, no SQLAlchemy** → nada se persiste todavía.
+- **Backend = esqueleto + flujo de horarios.** Routers montados en `app/api/v1/router.py`: health, chat, upload, **schedules (`generate`)** y **ocr (`process-image`)**. Sigue **sin auth, sin persistencia real, sin migraciones**.
+- **Frontend = mock salvo 3 features reales.** ~25 *server actions* (`'use server'`) devuelven datos hardcodeados con `setTimeout`; ya van **contra el backend real**: ai-agent (chat), **OCR** y **generación de horarios**. **No existe aún un cliente HTTP compartido genérico** (cada feature resuelve su red).
+- **Modelos de dominio son `dataclasses`, no SQLAlchemy** → nada se persiste todavía (incl. el dominio `schedules/`).
 
 ### Endpoints backend realmente vivos hoy
 
-> Tabla actualizada al **2026-05-29** (incluye US-12).
+> Tabla actualizada al **2026-05-29** (incluye US-01/02 OCR, US-07 generar, US-12 chat).
 
 | Método | Ruta | Real | Notas |
 |---|---|---|---|
@@ -157,31 +157,37 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 | GET | `/api/v1/chat/conversations/{id}` | ✅ | detalle con mensajes |
 | DELETE | `/api/v1/chat/conversations/{id}` | ✅ | elimina conversación |
 | GET | `/static/chatbot.png` | ✅ | avatar del agente (StaticFiles) |
-| POST | `/api/v1/upload/` | ✅ | sube 1 archivo a GCS |
-| POST | `/api/v1/upload/multiple/` | ✅ | sube varios archivos a GCS |
+| POST | `/api/v1/upload/` | ✅ | sube 1 archivo a GCS. **Huérfano**: el FE no lo llama (ver decisión OCR del 2026-05-29). |
+| POST | `/api/v1/upload/multiple/` | ✅ | sube varios archivos a GCS. Huérfano (sin uso en el flujo). |
+| POST | `/api/v1/schedules/generate` | ✅ | **US-07**: genera combinaciones sin cruces. Reúsa `generator.py`. `MAX_OPTIONS=20`, `truncated`, timeout 2 min. Sin auth. **Conectado al FE** (`generateSchedules.ts` hace fetch; verificado en vivo 2026-05-29). |
+| POST | `/api/v1/ocr/process-image` | ✅ | **US-01/02**: imágenes (png/jpeg/webp, ≤10 MB) → **Gemini multimodal** (imagen directa, inline, sin GCS) → `{cursos}`. Tipo inválido/PDF/grande → 422; imagen ilegible → 422 "Error al procesar...". Sin auth. Verificado end-to-end (2026-05-29): 3 cursos/21 secciones correctos. **Conectado al FE** (`extractCoursesFromFile.ts`, sin fallback: muestra el error real). |
 
-**Vacíos / inexistentes:** `app/domains/schedules/{router,service,schemas}.py` están a 0 bytes. No hay dominios de `auth`, `admin`, `professors/reviews`, ni endpoint `ocr/*` ni `schedules/*`. Las conversaciones de chat existen pero **in-memory** (`app/domains/chat/store.py`), aún sin modelos SQLAlchemy ni persistencia. El generador (`app/integrations/generator/generator.py`, backtracking) **funciona pero no está expuesto por HTTP**. `db/migrations/versions/` solo tiene `.gitkeep` y `env.py` no importa modelos. `python-jose` y `passlib[bcrypt]` ya están en `pyproject.toml` pero sin código de auth.
+> **🟢 Actualización 2026-05-29 — `POST /schedules/generate` implementado (backend).** Dominio `app/domains/schedules/` (`schemas.py`/`service.py`/`router.py`) que adapta el contrato del FE (strings `horarios`/`blockedSlots`) → `TimeBlock`, reúsa `generate_schedules()` y reconstruye el shape `{id, options:[{id, courses:[…selectedSection]}], truncated}`. Restricciones imposibles → 200 con `options:[]`; sin cursos seleccionados → 422. Tests en `tests/test_schedules_generate.py` (8), ruff/mypy OK. **FE conectado** (`generateSchedules.ts` hace fetch; verificado en vivo 2026-05-29: payload del FE → opciones correctas, bloqueos respetados). **Pendiente:** auth para guardar (US-09), click-through del UI corriendo, commit.
+
+> **🔎 2026-05-29 — Caso "solo 1 combinación" reportado por Carlos: el algoritmo es correcto.** Input: 650078 ANALÍTICA (1 sección fija 853: LUN/JUE 18-20) + 650065 CIBERSEGURIDAD (4 secciones; 754 y 755 chocan en JUE 19-22 con la 853). El backend devuelve **2 opciones** (853+751, 853+753) — verificado por curl en vivo, por réplica de la lógica del FE, y blindado con `test_caso_analitica_ciberseguridad_da_dos_opciones`. El "1 opción" que ve Carlos es de **runtime, no de código**: sospechoso nº1 = `localStorage['smartsched.wizard'].blockedSlots` que persiste entre reinicios del FE (un bloqueo viejo en MAR 20-22 / VIE 19-22 descarta la 753 → queda 1). Pendiente: que Carlos limpie ese localStorage o pase payload/response reales de Network.
+
+**Vacíos / inexistentes:** No hay dominios de `auth`, `admin`, `professors/reviews`. `ocr/process-image` ya existe (US-01/02), usa **Gemini multimodal** (sin Cloud Vision) y fue **verificado end-to-end contra Gemini real** con una imagen de `test_images/` (los tests automatizados mockean el estructurador para no gastar cuota; falta un test de integración real automatizado). El dominio `schedules/` ya expone **`generate`** (US-07), pero `models.py` siguen siendo dataclasses (sin SQLAlchemy) y **no existe `SavedSchedule`** ni endpoints `schedules/saved` (US-09). Las conversaciones de chat existen pero **in-memory** (`app/domains/chat/store.py`), aún sin modelos SQLAlchemy ni persistencia. `db/migrations/versions/` solo tiene `.gitkeep` y `env.py` no importa modelos. `python-jose` y `passlib[bcrypt]` ya están en `pyproject.toml` pero sin código de auth.
 
 ### Estado del frontend (capa de datos)
 
 - **Sin infraestructura compartida:** no hay `lib/http`, `apiClient`, axios, SWR ni React Query. Cada feature resuelve (o simula) su red por su cuenta.
 - **Auth 100% mock:** `features/auth/loginAction.ts` valida contra `features/auth/testCredentials.ts` (cuentas fijas: `alumno@ulima.edu.pe / Alumno123`, `admin@ulima.edu.pe / Admin1234`). La sesión se guarda en `localStorage['smartsched.session']` = `{ user: { id, email, name, role }, expiresAt }`. `AuthGuard.tsx` solo lee ese localStorage client-side (sin validación en backend). Sin JWT, sin Google login.
-- **Única llamada real:** `features/schedule-generator/extractCoursesFromFile.ts` → `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` (FormData campo `files`), con **fallback** a `ocr_clean_output_example.json` si falla. Como el backend no tiene ese endpoint, en la práctica siempre usa el fallback local.
-- **Generación de horarios:** corre **client-side** en `generateSchedules.ts` (backtracking en JS, `MAX_OPTIONS=20`), no toca el backend.
+- **OCR conectado:** `features/schedule-generator/extractCoursesFromFile.ts` → `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` (FormData campo `files`). **Ya no hay fallback** a `ocr_clean_output_example.json`: ante error (imagen ilegible 422, backend caído) muestra el mensaje real. Solo acepta imágenes (PDF fuera).
+- **Generación de horarios:** YA conectada — `generateSchedules.ts` (server action) hace `fetch` a `POST /api/v1/schedules/generate`. El backtracking en JS fue eliminado.
 
 ### Matriz de historias — ¿qué es "funcional" hoy?
 
-Dos sentidos distintos. **Conectado FE↔BE = 0 en todas.** "Funciona en UI" = la pantalla opera de forma autónoma (estado cliente o mock).
+Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el resto sigue mock). "Funciona en UI" = la pantalla opera de forma autónoma (estado cliente o mock).
 
 | US | Frontend hoy | Backend hoy | Conectado | Qué falta |
 |---|---|---|---|---|
-| US-01 Subir imagen (OCR) | UI completa; fetch real con fallback a JSON local | ❌ no existe `/ocr/process-image` (solo `/upload`) | ❌ | crear endpoint OCR y alinear contrato |
-| US-02 Subir otra imagen | merge en estado cliente | n/a | ⚠️ depende de OCR | — |
+| US-01 Subir imagen (OCR) | UI completa; fetch real, **sin fallback** (muestra el error) | ✅ `/ocr/process-image` (imágenes inline, sin GCS; **Gemini multimodal**, verificado real) | 🟢 **SÍ** | calidad del mapeo en grillas densas; test de integración real automatizado |
+| US-02 Subir otra imagen | merge en estado cliente (dedupe código+sección) | ✅ acepta múltiples `files` por llamada | 🟢 **SÍ** (vía OCR) | — |
 | US-03 Añadir manual | estado cliente | n/a | ✅ FE puro | no requiere backend |
 | US-04 Eliminar fila | estado cliente | n/a | ✅ FE puro | no requiere backend |
 | US-05 Editar fila | estado cliente | n/a | ✅ FE puro | no requiere backend |
 | US-06 Horas no disponibles | grid en estado cliente | n/a | ✅ FE puro | enviar bloques al generador |
-| US-07 Generar combinaciones | **client-side** (JS) | generador existe como lib, no expuesto | ❌ | **DECISIÓN: mover a endpoint backend** |
+| US-07 Generar combinaciones | vía backend (`generateSchedules.ts` hace fetch; ya no genera en JS) | ✅ `POST /schedules/generate` (reúsa generador, timeout/límite/truncated) | 🟢 **SÍ** (verificado en vivo) | falta: auth para guardar (US-09); click-through del UI corriendo |
 | US-08 Visualizar horarios | navegación cliente | n/a | ✅ FE puro | no requiere backend |
 | US-09 Guardar horario | mock (perfil con horarios fijos; botón "Guardar" sin handler) | ❌ no existe | ❌ | modelo + CRUD + auth |
 | US-12 Chat IA | ✅ conectado (real) | ✅ agente ADK real in-process + conversaciones in-memory | 🟢 **SÍ (in-memory)** | falta: auth real (US-24), persistencia DB, <3s, eval, deploy |
@@ -194,7 +200,7 @@ Dos sentidos distintos. **Conectado FE↔BE = 0 en todas.** "Funciona en UI" = l
 | US-32 Crear cursos (admin) | mock (sin "publicar") | ❌ no existe | ❌ | modelos Course/Section + endpoints |
 | (admin CRUD profesores) | mock | ❌ no existe | ❌ | sin US numerada; existe en el FE |
 
-**Lectura rápida:** funcionan hoy en la UI por sí solas (FE puro, no necesitan backend) **US-03, US-04, US-05, US-06, US-08**; US-02 y US-07 también operan en cliente pero US-07 debe migrar al backend. Todo lo que implica **persistencia, auth o IA** (US-09, US-12, US-21, US-24, US-25, US-29–US-32) está mock y requiere construir el backend desde cero.
+**Lectura rápida:** funcionan hoy en la UI por sí solas (FE puro, no necesitan backend) **US-03, US-04, US-05, US-06, US-08**; **US-01/02 (OCR) y US-07 (generación) ya van contra el backend**. Todo lo que implica **persistencia, auth o IA** (US-09, US-12, US-21, US-24, US-25, US-29–US-32) está mock y requiere construir el backend desde cero.
 
 ### Lo que falta para conectar (trabajo transversal)
 
@@ -202,14 +208,15 @@ Dos sentidos distintos. **Conectado FE↔BE = 0 en todas.** "Funciona en UI" = l
 2. **Persistencia.** Convertir las `dataclasses` de `users/` y `schedules/` en modelos SQLAlchemy, crear las **primeras migraciones Alembic** e importarlas en `app/db/migrations/env.py`.
 3. **Cliente HTTP compartido en el FE.** Crear `src/lib/http/apiClient.ts` con base `NEXT_PUBLIC_API_URL` + header `Authorization`, y un contexto/manejo de sesión.
 4. **Reemplazar las ~25 server actions mock** por llamadas reales y reemplazar el `AuthGuard` mock por validación contra el backend.
-5. **Construir los routers faltantes:** `ocr`, `schedules` (generate + saved), `auth`, `admin` (users + courses), `professors/reviews`, `conversations`.
+5. **Construir los routers faltantes:** `schedules/saved` (US-09), `auth`, `admin` (users + courses), `professors/reviews`. (Ya hechos: `ocr/process-image`, `schedules/generate`, `chat`.)
 6. **Alinear contratos** (ver abajo) y **reemplazar el stub del agente IA** por la integración real en Vertex AI.
 
-### Decisiones tomadas (2026-05-28)
+### Decisiones tomadas
 
-- **Generación de horarios → backend.** Se expondrá `POST /api/v1/schedules/generate` reutilizando `app/integrations/generator/generator.py`; el FE dejará de generar client-side. (Implementa la US-07 al pie: timeout 2 min, límite de combinaciones.)
-- **Estrategia de sesión/token → PENDIENTE** ("después veremos"). Opciones en evaluación: cookie HttpOnly (recomendada, encaja con los *server actions* de Next y es más segura ante XSS) vs. localStorage + `Bearer` (menos cambios sobre lo actual).
-- **Esta fase = solo planear y documentar.** No se implementa código de conexión todavía.
+- **(2026-05-28) Generación de horarios → backend.** ✅ **Implementado y conectado el 2026-05-29.** `POST /api/v1/schedules/generate` reutiliza `app/integrations/generator/generator.py`; el FE (`generateSchedules.ts`, server action) ya hace fetch y eliminó el backtracking en JS. Verificado en vivo (payload del FE → opciones correctas, bloqueos respetados). Implementa US-07: timeout 2 min, `MAX_OPTIONS=20`, flag `truncated`.
+- **(2026-05-29) OCR → solo imágenes, procesamiento inline, SIN GCS.** El endpoint `/ocr/process-image` procesa los bytes inline — **no** se sube a GCS ni se soportan PDFs. Consecuencia: `/upload` y `bucket/` quedan como **piezas huérfanas** (no entran al flujo). Si en el futuro se necesitan PDFs, ahí se reintroduce GCS + batch async.
+- **(2026-05-29) OCR → Gemini multimodal directo, SIN Cloud Vision.** El flujo previo (Vision `document_text_detection` → texto plano → Gemini solo-texto) **aplanaba la tabla 2D y perdía la relación fila×columna**: el modelo no sabía a qué día/sección pertenecía cada horario → días y horas mal asignados (verificado con `test_images/f3028cb3-…jpg`: los rangos `7-10` quedaban como un chorro sin estructura). Solución: pasar la **imagen directa** a `gemini-flash-latest` (es multimodal) vía `types.Part.from_bytes`; lee la grilla visualmente. El prompt entiende el formato real de ULIMA (rangos `7-10` por columna de día → `inicio/fin` HH:MM; aula solo si la celda la trae, si no `null`). `max_output_tokens=16384` para tablas densas. `service._merge_courses()` agrupa de forma determinista los cursos que el modelo a veces duplica (uno por sección). **`ocr/client.py` (Cloud Vision) + `scripts/ocr_smoke.py` quedan huérfanos** (se conservan por si se reintroduce). Smoke test del nuevo flujo: `uv run python scripts/ocr_smoke_multimodal.py <img>` (consume cuota real). Validado end-to-end: 3 cursos / 21 secciones correctos; residuos solo por calidad de imagen (dígitos 6/8 ambiguos en nº de sección).
+- **(2026-05-28) Estrategia de sesión/token → PENDIENTE** ("después veremos"). Opciones en evaluación: cookie HttpOnly (recomendada, encaja con los *server actions* de Next y es más segura ante XSS) vs. localStorage + `Bearer` (menos cambios sobre lo actual).
 
 ### Contratos a respetar al construir el backend
 
@@ -218,13 +225,13 @@ Dos sentidos distintos. **Conectado FE↔BE = 0 en todas.** "Funciona en UI" = l
 
 - **OCR:** el FE hace `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` con FormData campo `files` (múltiple) y espera
   `{ "cursos": [ { codigo, nombre, creditos, nivel, secciones: [ { seccion, profesor, vacantes, horario: [ { dia, inicio, fin, aula } ] } ] } ] }`.
-  ⚠️ **Mismatch:** el backlog de US-01 nombra el endpoint `/ocr/extract`. Hay que **unificar el nombre** (renombrar en FE o en BE). El parser `parse_ocr_to_sections()` ya consume el shape `{cursos:[{nombre, secciones:[{seccion, horario:[{dia,inicio,fin}]}]}]}` con `DAY_MAP` (LUN/MAR/MIE/JUE/VIE/SAB/DOM).
+  **Implementado (2026-05-29):** solo imágenes (`image/png`, `image/jpeg`, `image/webp`, ≤10 MB), procesadas **inline con Gemini multimodal** — la imagen va directa al modelo con `response_schema` (sin GCS, sin Cloud Vision, sin PDF). ⚠️ **Mismatch de nombre:** el backlog de US-01 dice `/ocr/extract`, pero el FE ya llama a `/ocr/process-image` → se implementó el del FE.
 - **Sesión:** el FE actual usa `localStorage['smartsched.session'] = { user: { id, email, name, role }, expiresAt }`. El backend de auth deberá producir algo compatible o el FE deberá adaptarse cuando se decida la estrategia de token.
 
 ### Roadmap de conexión por fases (propuesto, sin implementar aún)
 
 - **Fase 0 — Fundaciones:** modelos SQLAlchemy + Alembic base · auth (login/JWT/roles/bloqueo, US-24/25) · cliente HTTP + sesión en el FE · `AuthGuard` real.
-- **Fase 1 — Flujo core del generador:** endpoint OCR real (Vision + agente → `{cursos}`) · `POST /schedules/generate` · guardar horarios (modelo + CRUD, US-09) · conectar el wizard (US-01/02/06/07/08/09).
+- **Fase 1 — Flujo core del generador:** ✅ OCR (Gemini multimodal → `{cursos}`) · ✅ `POST /schedules/generate` · ✅ wizard conectado (US-01/02/06/07/08). **Falta:** guardar horarios (modelo + CRUD, US-09, bloqueado por auth).
 - **Fase 2 — Resto:** chat real + conversaciones (US-12) · profesores + reseñas (US-21) · admin usuarios/cursos (US-29–US-32, con "publicar").
 
 ---

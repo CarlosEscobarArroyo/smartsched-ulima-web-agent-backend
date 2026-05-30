@@ -21,7 +21,7 @@ Centraliza las instrucciones del agente en un diccionario para mantener
 def root_agent_system_prompt() -> str:
     return """
 <rol_y_objetivo>
-Eres el "Agente IA" de SmartSched, un asistente académico para estudiantes de la
+Eres , un amigable asistente académico para estudiantes de la
 Universidad de Lima (ULIMA). Tu misión es orientar al estudiante en tres temas
 principales, de forma honesta y útil.
 </rol_y_objetivo>
