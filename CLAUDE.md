@@ -138,6 +138,40 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 > - **Pendiente para cerrar la DoD formal:** CA-2 auth real (US-24), CA-3 (<3s) sin medir, persistencia
 >   `Conversation`/`Message` + Alembic, eval del agente, deploy a Cloud Run, code review + merge. Sin commitear aún.
 
+> **🟢 Actualización 2026-05-31 (tarde) — US-09 Guardar horario CERRADA end-to-end (FE↔BE↔Neon). Sin commitear.**
+> El backend de US-09 ya estaba; esta tanda completó el **FE** y agregó el **detalle**:
+> - **Nuevo endpoint BE:** `GET /api/v1/schedules/saved/{id}` → `SavedScheduleDetailOut` = `{id, name, savedAt, scheduleData}` (la lista NO expone el blob; el detalle SÍ, para re-renderizar). `saved_service.get_saved_schedule` (404 si no es del usuario). 3 tests nuevos → **suite 43 passed**, ruff/mypy limpios.
+> - **FE:** módulo cliente `features/schedule-generator/savedSchedules.ts` (save/list/detail/delete con `Authorization: Bearer` vía `getToken()`; errores tipados `NotAuthenticatedError`/`SaveLimitError`); botón **"Guardar"** del `ScheduleModal` ya **habilitado** (se quitó el "Pronto") → abre `SaveScheduleDialog` (nombrar, validación, 409/sesión); tabla extraída a **`ScheduleGrid`** (reutilizable); **"Mis horarios"** del perfil ahora es real (`SavedSchedulesSection` client: fetch + eliminar con confirmación + "Ver" → `ViewScheduleDialog` re-renderiza el horario guardado). Se quitó el mock `schedules` de `getProfile`.
+> - **⚠️ Importante:** el body de guardar usa **`schedule_data` (snake_case)** — `SavedScheduleCreate` NO tiene `populate_by_name`. Las llamadas son **client-side fetch** (no server actions) porque el token vive en localStorage. CORS del backend ya permite `Authorization`.
+> - **Verificado en vivo contra Neon:** guardar 201, listar 200 (sin blob), detalle 200 (con `scheduleData`), detalle sin token 401, eliminar 204, listar tras borrar `[]`/200. FE `tsc`+`lint`+`build` limpios. **Falta solo:** prueba manual en navegador (click "Guardar" → modal → perfil).
+>
+> **🟢 Actualización 2026-05-31 — Neon CONECTADO y login probado EN VIVO. Sin commitear.**
+> La BD ya no es teoría: Carlos creó el proyecto en Neon (región `us-east-1`, **Postgres 17.10**) y pegó el `DATABASE_URL` directo (no `-pooler`) + un `JWT_SECRET_KEY` real en `backend/.env` (ignorado por git).
+> - **Migraciones aplicadas a Neon:** `uv run alembic upgrade head` corrió **0001 + 0002** → existen las tablas `users`, `saved_schedules` y `alembic_version` (verificado por `information_schema`).
+> - **Seed corrido:** `scripts/seed_users.py` (idempotente) → `alumno@ulima.edu.pe/Alumno123` (student) y `admin@ulima.edu.pe/Admin1234` (admin).
+> - **Login end-to-end OK (curl contra uvicorn real):** alumno → 200 `role=student` con JWT válido; admin → 200 `role=admin`; `/auth/me` con token → 200; password incorrecto → 401; `/auth/me` sin token → 401.
+> - **Fix en `app/db/url.py`:** `build_engine_url` ahora **normaliza el esquema `postgresql://`→`postgresql+asyncpg://`** (además de limpiar `sslmode`/`channel_binding` y agregar SSL), para poder pegar la cadena de Neon tal cual.
+>
+> **🟢 Actualización 2026-05-30 — US-24 (Auth + DB base) y US-09 backend (Guardar horario). Sin commitear.**
+> Primera **persistencia real** del proyecto (antes todo eran dataclasses, 0 migraciones). Construido **solo backend** salvo el cableado FE del login.
+>
+> **Decisiones de esta sesión:**
+> - **Estrategia de token = `Bearer` + localStorage** (resuelve el "PENDIENTE" del 2026-05-28). El FE manda `Authorization: Bearer <jwt>`.
+> - **Proveedor de BD = Neon** (Postgres serverless, free tier real, escala a cero) en vez de Cloud SQL (costo; se acabaron créditos GCP). ⚠️ Neon está **fuera de GCP** — excepción aceptada solo para la BD; compute/Vertex/agente/bucket siguen en `ulima-agent`. Código es Postgres puro → **solo cambia `DATABASE_URL`**.
+> - **Modelo de datos completo** diseñado en [`docs/DATA_MODEL.md`](./docs/DATA_MODEL.md) (diagrama ER Mermaid + 11 tablas). `section_times` normalizada; prereqs M2M auto-ref; JSONB solo para `saved_schedules.schedule_data`; profesor ≠ usuario; rol canónico `student/admin`; ids UUID string.
+>
+> **US-24 Auth (backend):** `app/core/security.py` (bcrypt directo — se descartó passlib, rompía con bcrypt ≥4.1 — + JWT con python-jose), `app/core/config.py` (`jwt_secret_key`, `access_token_expire_minutes=480`, `max_login_attempts=3`, `lockout_minutes=15`), `app/domains/users/models.py` (ORM `User` + enum `UserRole`; se **conservan** las dataclasses `Usuario/Alumno/Profesor` que usa `schedules/models.py`), `users/repository.py`, dominio `app/domains/auth/` (`schemas`, `service`, `deps`, `router`). Endpoints: `POST /auth/login` (401 inválido; **423 bloqueo tras 3 intentos/15 min**; resetea contador al éxito) y `GET /auth/me`. Dependencies reutilizables **`get_current_user`** y **`require_role(UserRole.ADMIN)`**. Migración **`0001_create_users_table`**. `scripts/seed_users.py` (idempotente: `alumno@ulima.edu.pe/Alumno123` student, `admin@ulima.edu.pe/Admin1234` admin). Deps nuevas: `pydantic[email]`, `bcrypt` (quitado `passlib`), `aiosqlite` (dev).
+>
+> **US-09 Guardar horario (backend):** ORM `SavedSchedule` (`schedule_data` = `JSON().with_variant(JSONB,"postgresql")` para que los tests SQLite funcionen), migración **`0002_create_saved_schedules`** (FK `user_id` CASCADE + index), `schedules/saved_service.py` (create/list/delete, **tope `MAX_SAVED=10` → 409**, 404 si el horario no es del usuario), endpoints protegidos con `get_current_user`: `POST/GET/DELETE /api/v1/schedules/saved`. `SavedScheduleOut` = `{id, name, savedAt}` (campo `saved_at` con `alias="savedAt"`).
+>
+> **Infra Neon:** `app/db/url.py` (`build_engine_url`) normaliza la URL (quita `sslmode`/`channel_binding`/`options` que asyncpg rechaza) y activa **SSL con verificación** en hosts remotos; localhost sin SSL. Usado por `session.py` y `migrations/env.py`. `.env.example` documenta el formato Neon (usar string **directo**, NO `-pooler`).
+>
+> **Tests para BD sin Postgres:** `tests/conftest.py` levanta **SQLite en memoria** (StaticPool) + override de `get_db` + httpx `AsyncClient`. `tests/test_auth.py` (10) y `tests/test_saved_schedules.py` (5). **Suite total: 40 passed.** ruff/mypy limpios en archivos nuevos (la deuda preexistente en `bucket/`, `ocr/client.py`, `agent/`, `chat/router.py:44` sigue ahí, NO es de esta sesión).
+>
+> **FE del login cableado** (ver CLAUDE.md del frontend): `loginAction` real, `session.ts`, redirección y guardia por rol. `tsc`/`lint`/`build` limpios.
+>
+> **✅ VERIFICADO EN VIVO (2026-05-31)** contra Neon: `alembic upgrade head` (0001+0002), `seed_users.py` y login real OK (ver bloque verde del 2026-05-31 arriba). Ya NO se usa Docker/Postgres local — la BD es Neon remota.
+
 ### Resumen ejecutivo
 
 - **Backend = esqueleto + flujo de horarios.** Routers montados en `app/api/v1/router.py`: health, chat, upload, **schedules (`generate`)** y **ocr (`process-image`)**. Sigue **sin auth, sin persistencia real, sin migraciones**.
@@ -151,6 +185,12 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 | Método | Ruta | Real | Notas |
 |---|---|---|---|
 | GET | `/api/v1/health` | ✅ | status + environment |
+| POST | `/api/v1/auth/login` | ✅ | **US-24**: email+password → `{access_token, token_type, user}`. 401 inválido / 423 bloqueo (3 intentos/15 min). DB = Neon. **Probado en vivo (2026-05-31)** + tests SQLite. |
+| GET | `/api/v1/auth/me` | ✅ | **US-24**: valida el JWT (`Authorization: Bearer`) y devuelve el usuario. |
+| POST | `/api/v1/schedules/saved` | ✅ | **US-09** 🔒: guarda horario del usuario (tope 10 → 409). Body `{name, schedule_data}` → `{id, name, savedAt}`. |
+| GET | `/api/v1/schedules/saved` | ✅ | **US-09** 🔒: lista los horarios guardados del usuario (ligero, sin blob). **Conectado al FE** (perfil → Mis horarios). |
+| GET | `/api/v1/schedules/saved/{id}` | ✅ | **US-09** 🔒: detalle con `scheduleData` (para re-renderizar). 404 si no es del usuario. **Conectado al FE** (botón "Ver"). |
+| DELETE | `/api/v1/schedules/saved/{id}` | ✅ | **US-09** 🔒: elimina (204; 404 si no es del usuario). **Conectado al FE** (eliminar en Mis horarios). |
 | POST | `/api/v1/chat` | ✅ | Agente ADK real in-process. Body `{conversation_id, message}` → `{reply, conversation_id}`. Sin auth. |
 | GET | `/api/v1/chat/conversations` | ✅ | lista conversaciones (in-memory) |
 | POST | `/api/v1/chat/conversations` | ✅ | crea conversación (in-memory) |
@@ -175,9 +215,15 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 - **OCR conectado:** `features/schedule-generator/extractCoursesFromFile.ts` → `POST {NEXT_PUBLIC_API_URL}/api/v1/ocr/process-image` (FormData campo `files`). **Ya no hay fallback** a `ocr_clean_output_example.json`: ante error (imagen ilegible 422, backend caído) muestra el mensaje real. Solo acepta imágenes (PDF fuera).
 - **Generación de horarios:** YA conectada — `generateSchedules.ts` (server action) hace `fetch` a `POST /api/v1/schedules/generate`. El backtracking en JS fue eliminado.
 
+> **🔄 Reconciliación de backlog (2026-05-31).** Carlos entregó el backlog oficial: **26 historias en 3 sprints**. Cambios vs. lo que documentaba este archivo:
+> - **10 historias NUEVAS** agregadas (abajo, en sus sprints): **US-10** descargar horario, **US-11** generar nuevo horario (Sprint 2); **US-26** modificar perfil, **US-28** configurar plataforma (Sprint 1); **US-13** guardar conversaciones, **US-14** eliminar conversaciones, **US-15** reputación profesor, **US-16** dificultad de curso, **US-17** prerrequisitos, **US-18** cursos por nivel (**Sprint 3, NUEVO**).
+> - 🤖 **Las consultas del Sprint 3 (US-15 reputación, US-16 dificultad, US-17 prerrequisitos, US-18 cursos por nivel) se resuelven vía el AGENTE IA** (conocimiento del LLM), **NO** vía una sección de profesores/cursos con DB. **(Aclaración de Carlos 2026-05-31.)** Por ahora **NO** se construye `features/professors` con datos reales ni los modelos `Professor`/`Review`/`Course` para estas; el trabajo es **reforzar el prompt/herramientas del agente** (extiende US-12). Las tablas siguen *diseñadas* en `docs/DATA_MODEL.md` por si más adelante se quiere data-driven.
+> - ⚠️ **US-21 "Agregar Reseñas"** NO está en el backlog oficial y **pertenece al agente IA** (Carlos 2026-05-31): **no requiere la sección de profesores aún**. Se trata como parte del dominio de chat (US-12), no como módulo aparte.
+> - **US-05 y US-06 movidas a Sprint 1** en el backlog oficial (aquí siguen físicamente bajo "SPRINT 02" por orden histórico; cada una tiene la nota).
+
 ### Matriz de historias — ¿qué es "funcional" hoy?
 
-Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el resto sigue mock). "Funciona en UI" = la pantalla opera de forma autónoma (estado cliente o mock).
+Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07, US-12 y US-24 (login, vivo 2026-05-31)** (el resto sigue mock o pendiente). "Funciona en UI" = la pantalla opera de forma autónoma (estado cliente o mock).
 
 | US | Frontend hoy | Backend hoy | Conectado | Qué falta |
 |---|---|---|---|---|
@@ -189,11 +235,21 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 | US-06 Horas no disponibles | grid en estado cliente | n/a | ✅ FE puro | enviar bloques al generador |
 | US-07 Generar combinaciones | vía backend (`generateSchedules.ts` hace fetch; ya no genera en JS) | ✅ `POST /schedules/generate` (reúsa generador, timeout/límite/truncated) | 🟢 **SÍ** (verificado en vivo) | falta: auth para guardar (US-09); click-through del UI corriendo |
 | US-08 Visualizar horarios | navegación cliente | n/a | ✅ FE puro | no requiere backend |
-| US-09 Guardar horario | mock (perfil con horarios fijos; botón "Guardar" sin handler) | ❌ no existe | ❌ | modelo + CRUD + auth |
+| US-09 Guardar horario | ✅ botón "Guardar" real (modal nombrar) + "Mis horarios" real (listar/ver/eliminar) | ✅ `POST/GET/GET{id}/DELETE /schedules/saved` (🔒, tope 10) **vivo en Neon** | 🟢 **SÍ (vivo 2026-05-31)** por API | prueba manual en navegador |
+| US-10 Descargar horario | ❌ no hay descarga | n/a (o PDF server-side) | ❌ | exportar PDF/imagen en el FE (o endpoint de PDF) |
+| US-11 Generar nuevo horario | ✅ "Crear nuevo"/"Finalizar" reinician el wizard (`reset`/`clearPersisted`) | n/a | 🟢 FE puro | prácticamente hecho; Carlos decidió NO confirmación destructiva |
 | US-12 Chat IA | ✅ conectado (real) | ✅ agente ADK real in-process + conversaciones in-memory | 🟢 **SÍ (in-memory)** | falta: auth real (US-24), persistencia DB, <3s, eval, deploy |
-| US-21 Reseñas profesores | mock | ❌ no existe | ❌ | modelos Professor/Review + endpoints |
-| US-24 Iniciar sesión | mock (testCredentials/localStorage) | ❌ no existe | ❌ | **linchpin**: auth real |
+| US-13 Guardar conversaciones | ✅ lista/usa conversaciones (in-memory) | 🟡 in-memory (`chat/store.py`), sin DB ni `user_id` | 🟡 in-memory | persistir `Conversation`/`Message` + ligar al usuario |
+| US-14 Eliminar conversaciones | ✅ papelera para eliminar | ✅ `DELETE /chat/conversations/{id}` (in-memory) | 🟢 SÍ (in-memory) | persistencia + validar ownership |
+| US-15 Consultar reputación profesor 🤖 | vía **agente IA** (chat) | 🟡 agente IA (US-12) responde del LLM | 🟡 (vía chat) | reforzar el prompt del agente; **NO** requiere sección de profesores ni tablas `Professor`/`Review` aún |
+| US-16 Consultar dificultad de curso 🤖 | vía **agente IA** (chat) | 🟡 agente IA responde del LLM | 🟡 (vía chat) | reforzar prompt; sin DB de cursos aún |
+| US-17 Consultar prerrequisitos 🤖 | vía **agente IA** (chat) | 🟡 agente IA responde del LLM | 🟡 (vía chat) | reforzar prompt; sin tabla `course_prerequisites` aún |
+| US-18 Consultar cursos por nivel 🤖 | vía **agente IA** (chat) | 🟡 agente IA responde del LLM | 🟡 (vía chat) | reforzar prompt; sin DB de cursos aún |
+| US-21 Agregar reseñas 🤖 *(no en backlog oficial; es del agente IA)* | vía **agente IA** (chat) | 🟡 agente IA | 🟡 (vía chat) | **NO requiere sección de profesores aún** (aclaración Carlos 2026-05-31) |
+| US-24 Iniciar sesión | ✅ cableado (`loginAction` real + redirección/guardia por rol) | ✅ `POST /auth/login` (bloqueo 3/15min) + `/auth/me` + `get_current_user`/`require_role` | 🟢 **SÍ (vivo, 2026-05-31)** por API | falta prueba manual desde el navegador; Google login (CA-3) diferido |
 | US-25 Restablecer contraseña | mock (muta credenciales en memoria) | ❌ no existe | ❌ | tokens + email |
+| US-26 Modificar perfil | mock (`features/profile`) | ❌ solo `/auth/me` (lectura) | ❌ | `PATCH /users/me` + cablear FE |
+| US-28 Configurar plataforma | mock (`features/settings`) | ❌ no existe | ❌ | decidir si server-side (`preferences` JSONB) o solo cliente |
 | US-29 Crear usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
 | US-30 Modificar usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
 | US-31 Eliminar usuario (admin) | mock | ❌ no existe | ❌ | endpoint + `require_role` |
@@ -216,7 +272,9 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 - **(2026-05-28) Generación de horarios → backend.** ✅ **Implementado y conectado el 2026-05-29.** `POST /api/v1/schedules/generate` reutiliza `app/integrations/generator/generator.py`; el FE (`generateSchedules.ts`, server action) ya hace fetch y eliminó el backtracking en JS. Verificado en vivo (payload del FE → opciones correctas, bloqueos respetados). Implementa US-07: timeout 2 min, `MAX_OPTIONS=20`, flag `truncated`.
 - **(2026-05-29) OCR → solo imágenes, procesamiento inline, SIN GCS.** El endpoint `/ocr/process-image` procesa los bytes inline — **no** se sube a GCS ni se soportan PDFs. Consecuencia: `/upload` y `bucket/` quedan como **piezas huérfanas** (no entran al flujo). Si en el futuro se necesitan PDFs, ahí se reintroduce GCS + batch async.
 - **(2026-05-29) OCR → Gemini multimodal directo, SIN Cloud Vision.** El flujo previo (Vision `document_text_detection` → texto plano → Gemini solo-texto) **aplanaba la tabla 2D y perdía la relación fila×columna**: el modelo no sabía a qué día/sección pertenecía cada horario → días y horas mal asignados (verificado con `test_images/f3028cb3-…jpg`: los rangos `7-10` quedaban como un chorro sin estructura). Solución: pasar la **imagen directa** a `gemini-flash-latest` (es multimodal) vía `types.Part.from_bytes`; lee la grilla visualmente. El prompt entiende el formato real de ULIMA (rangos `7-10` por columna de día → `inicio/fin` HH:MM; aula solo si la celda la trae, si no `null`). `max_output_tokens=16384` para tablas densas. `service._merge_courses()` agrupa de forma determinista los cursos que el modelo a veces duplica (uno por sección). **`ocr/client.py` (Cloud Vision) + `scripts/ocr_smoke.py` quedan huérfanos** (se conservan por si se reintroduce). Smoke test del nuevo flujo: `uv run python scripts/ocr_smoke_multimodal.py <img>` (consume cuota real). Validado end-to-end: 3 cursos / 21 secciones correctos; residuos solo por calidad de imagen (dígitos 6/8 ambiguos en nº de sección).
-- **(2026-05-28) Estrategia de sesión/token → PENDIENTE** ("después veremos"). Opciones en evaluación: cookie HttpOnly (recomendada, encaja con los *server actions* de Next y es más segura ante XSS) vs. localStorage + `Bearer` (menos cambios sobre lo actual).
+- **(2026-05-30) Estrategia de sesión/token → DECIDIDO: `Bearer` + localStorage.** El FE guarda el JWT en `localStorage['smartsched.session']` y lo envía en `Authorization: Bearer`. Se descartó cookie HttpOnly (menos cambios sobre lo actual). El backend emite el token en `POST /auth/login` (HS256, 8 h).
+- **(2026-05-30) Proveedor de BD → Neon** (Postgres serverless gratis, escala a cero) en vez de Cloud SQL (costo). ⚠️ Fuera de GCP — excepción solo para la BD. Código Postgres puro → solo cambia `DATABASE_URL`; `app/db/url.py` maneja SSL/limpieza/normalización de la URL. **(2026-05-31) Conectado y operativo:** proyecto Neon en `us-east-1` (Postgres 17.10), migraciones+seed+login verificados en vivo. `DATABASE_URL` real vive en `.env` (no commiteado).
+- **(2026-05-30) Modelo de datos completo** en [`docs/DATA_MODEL.md`](./docs/DATA_MODEL.md): ER Mermaid + 11 tablas. `section_times` normalizada, prereqs M2M, JSONB solo para `saved_schedules`, profesor ≠ usuario, ids UUID string, rol canónico `student/admin`.
 
 ### Contratos a respetar al construir el backend
 
@@ -232,7 +290,7 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 
 - **Fase 0 — Fundaciones:** modelos SQLAlchemy + Alembic base · auth (login/JWT/roles/bloqueo, US-24/25) · cliente HTTP + sesión en el FE · `AuthGuard` real.
 - **Fase 1 — Flujo core del generador:** ✅ OCR (Gemini multimodal → `{cursos}`) · ✅ `POST /schedules/generate` · ✅ wizard conectado (US-01/02/06/07/08). **Falta:** guardar horarios (modelo + CRUD, US-09, bloqueado por auth).
-- **Fase 2 — Resto:** chat real + conversaciones (US-12) · profesores + reseñas (US-21) · admin usuarios/cursos (US-29–US-32, con "publicar").
+- **Fase 2 — Resto:** chat real + conversaciones (US-12/13/14) · **consultas vía agente IA** (US-15/16/17/18 + US-21 reseñas — todo por el chat, sin sección de profesores) · admin usuarios/cursos (US-29–US-32, con "publicar") · perfil/settings (US-26/28) · descargar/nuevo horario (US-10/11).
 
 ---
 
@@ -542,13 +600,70 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 
 ---
 
+## US-26 — Modificar perfil
+
+**Sprint:** 01 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante en su perfil, CUANDO edita sus datos básicos y guarda, ENTONCES el sistema valida la información y persiste los cambios.
+2. DADO un dato inválido (p. ej. nombre vacío), CUANDO intenta guardar, ENTONCES se muestra el error y no se guarda.
+
+### Tareas técnicas — Backend
+
+- Endpoint `PATCH /api/v1/users/me` (protegido con `get_current_user`) para actualizar campos básicos del usuario (p. ej. `name`; el email/rol no se editan desde aquí). `GET /api/v1/auth/me` ya devuelve el perfil.
+- Schema `UserUpdate` (Pydantic) con validación; reusar `UserOut` para la respuesta.
+- Tests: actualización OK, validación, 401 sin token.
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- `features/profile` ya existe (mock). Cablear el formulario a `PATCH /api/v1/users/me` (con `getToken()`), refrescar la sesión local tras guardar.
+- Validación Zod de campos; estado de carga + toast de confirmación.
+
+### Estado actual
+
+FE mock (`features/profile`); BE solo expone lectura (`/auth/me`). Falta el `PATCH` y el cableado.
+
+### Definition of Done
+
+- El estudiante edita y guarda su perfil; cambios validados y persistidos en Neon. Tests pasan. Sin vulnerabilidades High.
+
+---
+
+## US-28 — Configurar plataforma
+
+**Sprint:** 01 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante en "Configuración", CUANDO modifica preferencias básicas, ENTONCES el sistema conserva la configuración y la refleja en la interfaz.
+
+### Tareas técnicas — Backend
+
+- **Decisión pendiente:** si las preferencias son solo de UI (tema, densidad, etc.) pueden vivir **solo en el cliente** (localStorage) y NO requerir backend. Si deben sincronizarse entre dispositivos, agregar `preferences` (JSONB) en `users` o tabla `user_preferences` + `PATCH /api/v1/users/me/preferences`.
+- Tests si se implementa server-side.
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- `features/settings` ya existe (mock). Persistir preferencias (cliente o vía endpoint según la decisión) y reflejarlas en la UI.
+
+### Estado actual
+
+FE mock (`features/settings`); BE no existe. Definir primero si necesita persistencia server-side.
+
+### Definition of Done
+
+- Las preferencias se conservan y se reflejan en la UI. Si hay backend, tests pasan. Sin vulnerabilidades High.
+
+---
+
 ### SPRINT 02
 
 ---
 
 ## US-05 — Editar fila
 
-**Sprint:** 02
+**Sprint:** 02 → reasignada a **Sprint 1** en el backlog oficial (2026-05-31)
 
 ### Criterios de aceptación
 
@@ -590,7 +705,7 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 
 ## US-06 — Editar Horas de no trabajo
 
-**Sprint:** 02
+**Sprint:** 02 → reasignada a **Sprint 1** en el backlog oficial (2026-05-31)
 
 ### Criterios de aceptación
 
@@ -837,7 +952,9 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 
 ## US-21 — Agregar Reseñas
 
-**Sprint:** 02
+**Sprint:** 02 · 🤖 **Pertenece al AGENTE IA (Carlos 2026-05-31) — NO está en el backlog oficial**
+
+> 🤖 **Aclaración Carlos 2026-05-31:** US-21 es del **agente IA** y **NO requiere la sección de profesores aún**. No se construye módulo de reseñas/profesores con DB; cualquier interacción de reseñas/reputación se canaliza por el chat (US-12). Las tareas técnicas REST de abajo quedan como referencia histórica (fuera de alcance actual). Ver también US-15.
 
 ### Criterios de aceptación
 
@@ -1069,6 +1186,237 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07 y US-12** (el r
 ### Definition of Done
 
 - Admin puede crear y publicar cursos con secciones. Estudiantes ven solo cursos publicados. Tests pasan con cobertura >= 80%. Sin vulnerabilidades High.
+
+---
+
+## US-10 — Descargar Horario
+
+**Sprint:** 02 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante visualizando un horario, CUANDO presiona "Descargar", ENTONCES el sistema genera el archivo en el formato disponible y permite descargarlo.
+2. DADO el flujo de descarga, CUANDO el estudiante lo cancela, ENTONCES no se descarga nada y la vista queda intacta.
+
+### Tareas técnicas — Backend
+
+- **Decisión pendiente:** la descarga puede ser **100% cliente** (render del horario a PDF/imagen en el FE) y NO requerir backend. Si se quiere PDF generado en servidor, agregar `GET /api/v1/schedules/saved/{id}/pdf` (o `POST /schedules/export`) que renderice el horario.
+- Tests si se implementa server-side.
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- Botón "Descargar" en `ResultsStep`/`ScheduleModal`. Exportar el horario actual a PDF o imagen (cliente). Manejar cancelación sin efectos.
+
+### Estado actual
+
+No implementado (hoy el botón "Guardar" está deshabilitado y no hay descarga). Relacionada con US-09 (guardar) pero independiente.
+
+### Definition of Done
+
+- El estudiante descarga su horario en un formato usable; cancelar no descarga. Tests pasan (si hay backend). Sin vulnerabilidades High.
+
+---
+
+## US-11 — Generar Nuevo Horario
+
+**Sprint:** 02 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante con un horario generado, CUANDO inicia un nuevo proceso, ENTONCES el flujo se reinicia y limpia los datos anteriores si se confirma.
+2. DADO el reinicio, CUANDO el estudiante cancela, ENTONCES se mantiene el estado actual.
+
+### Tareas técnicas — Backend
+
+- n/a (todo el estado del wizard vive en el FE).
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- **Ya implementado:** `ScheduleModal` tiene "Crear nuevo" (→ `onReset` = `wizard.reset`, limpia estado + `localStorage['smartsched.wizard']`) y "Finalizar" (→ `clearPersisted`). Al volver al generador arranca en el paso 1.
+
+### Estado actual
+
+🟢 FE puro, prácticamente hecho. **Nota de producto:** Carlos decidió **NO** añadir confirmación destructiva al reiniciar (flujo rápido) — no re-proponer. El CA-1 dice "limpia si se confirma": revisar si se requiere un paso de confirmación explícito o si el botón separado ya satisface el criterio.
+
+### Definition of Done
+
+- Reiniciar limpia el flujo; cancelar mantiene el estado. Sin vulnerabilidades High.
+
+---
+
+### SPRINT 03
+
+---
+
+## US-13 — Guardar Conversaciones
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante conversando con el agente IA, CUANDO envía y recibe mensajes, ENTONCES el sistema guarda mensajes y respuestas y muestra las conversaciones previas asociadas a su usuario.
+
+### Tareas técnicas — Backend
+
+- Persistir las conversaciones en DB (hoy son **in-memory** en `app/domains/chat/store.py`): modelos `Conversation` (id, user_id FK, title, created_at) y `Message` (id, conversation_id FK, role, content, created_at) + migración Alembic.
+- Ligar cada conversación al usuario autenticado (`get_current_user`); `GET /chat/conversations` filtra por `user_id`.
+- Tests: persistencia, aislamiento por usuario, 401 sin token.
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- `features/ai-agent` ya lista/usa conversaciones vía API. Al persistir, enviar `Authorization: Bearer` (`getToken()`) y mostrar el historial del usuario.
+
+### Estado actual
+
+🟡 Parcial: el chat funciona pero **in-memory, sin DB y sin `user_id`** (decisión de fase US-12). Falta persistencia + binding al usuario (depende de US-24, ya vivo).
+
+### Definition of Done
+
+- Conversaciones y mensajes persistidos por usuario; historial visible. Tests pasan. Sin vulnerabilidades High.
+
+---
+
+## US-14 — Eliminar Conversaciones
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)**
+
+### Criterios de aceptación
+
+1. DADO un estudiante en su historial, CUANDO elimina una conversación (con confirmación), ENTONCES desaparece y el historial se actualiza.
+
+### Tareas técnicas — Backend
+
+- `DELETE /api/v1/chat/conversations/{id}` **ya existe** (in-memory). Al persistir (US-13), validar **ownership** (que la conversación sea del usuario) y proteger con `get_current_user`.
+- Tests: eliminar propia (204), eliminar ajena (404/403).
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- `features/ai-agent` ya tiene la **papelera** para eliminar conversaciones. Añadir confirmación si el CA lo exige.
+
+### Estado actual
+
+🟢 Funcional in-memory (papelera en FE + endpoint DELETE). Falta: persistencia (US-13) + validación de ownership + confirmación.
+
+### Definition of Done
+
+- El estudiante elimina conversaciones con confirmación; historial actualizado; solo elimina las suyas. Tests pasan. Sin vulnerabilidades High.
+
+---
+
+## US-15 — Consultar Reputación de Profesor
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)** · 🤖 **Se resuelve vía el AGENTE IA**
+
+> 🤖 **(Aclaración de Carlos 2026-05-31.)** Esta consulta la responde el **agente IA** con conocimiento del LLM — **NO** requiere la sección de profesores ni los modelos `Professor`/`Review` en DB. Es una extensión de **US-12** (chat), no un módulo aparte. La US-21 "Agregar Reseñas" también es del agente IA y **no requiere la sección de profesores aún**. (Las tablas siguen *diseñadas* en `docs/DATA_MODEL.md` por si en el futuro se quiere data-driven.)
+
+### Criterios de aceptación
+
+1. DADO un estudiante en el agente IA, CUANDO pregunta por la reputación de un profesor, ENTONCES el asistente responde con el resumen disponible.
+2. DADO un profesor sin información, ENTONCES el asistente informa que no hay datos.
+
+### Tareas técnicas — Backend
+
+- **Vía agente IA:** reforzar el prompt/instrucción del agente (`ulima_agent/`) para responder consultas de reputación de profesores. **NO** crear `Professor`/`Review` ni endpoints REST por ahora.
+- (Opcional futuro) si se quiere data-driven, recién ahí crear modelos + `GET /professors[/{id}]`.
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- Se usa el chat existente (`features/ai-agent`). **No** se cablea `features/professors` con datos reales todavía.
+
+### Estado actual
+
+🟡 Respondible por el agente IA (US-12 ya conectado). Falta reforzar el prompt. La sección de profesores sigue mock y **no** se conecta aún.
+
+### Definition of Done
+
+- El estudiante obtiene del agente IA un resumen de reputación; "sin datos" cuando aplica. Sin vulnerabilidades High.
+
+---
+
+## US-16 — Consultar Dificultad de Curso
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)** · 🤖 **Se resuelve vía el AGENTE IA**
+
+> 🤖 **(Carlos 2026-05-31)** La responde el **agente IA** (conocimiento del LLM). **NO** requiere DB de cursos ni sección dedicada por ahora; es extensión de US-12.
+
+### Criterios de aceptación
+
+1. DADO un estudiante en el agente IA, CUANDO pregunta por la dificultad de un curso, ENTONCES el asistente responde con el nivel/descripción, o informa si no tiene datos.
+
+### Tareas técnicas — Backend
+
+- **Vía agente IA:** reforzar el prompt del agente para responder dificultad de cursos. Sin endpoints REST ni modelo `Course` por ahora.
+- (Opcional futuro) data-driven con `GET /courses/{id}` cuando exista `Course` (US-32).
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- Se usa el chat existente (`features/ai-agent`).
+
+### Estado actual
+
+🟡 Respondible por el agente IA. Falta reforzar el prompt.
+
+### Definition of Done
+
+- El estudiante obtiene del agente IA la dificultad de un curso; maneja "sin datos". Sin vulnerabilidades High.
+
+---
+
+## US-17 — Consultar Prerrequisitos
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)** · 🤖 **Se resuelve vía el AGENTE IA**
+
+> 🤖 **(Carlos 2026-05-31)** La responde el **agente IA** (conocimiento del LLM). **NO** requiere la tabla `course_prerequisites` ni sección dedicada por ahora; es extensión de US-12.
+
+### Criterios de aceptación
+
+1. DADO un estudiante en el agente IA, CUANDO pregunta por los prerrequisitos de un curso, ENTONCES el asistente responde con los prerrequisitos, o informa si no tiene datos.
+
+### Tareas técnicas — Backend
+
+- **Vía agente IA:** reforzar el prompt del agente para responder prerrequisitos. Sin tabla `course_prerequisites` ni endpoints por ahora.
+- (Opcional futuro) data-driven con `GET /courses/{id}/prerequisites` cuando exista `Course` (US-32).
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- Se usa el chat existente (`features/ai-agent`).
+
+### Estado actual
+
+🟡 Respondible por el agente IA. Falta reforzar el prompt.
+
+### Definition of Done
+
+- El estudiante obtiene del agente IA los prerrequisitos de un curso; maneja "sin datos". Sin vulnerabilidades High.
+
+---
+
+## US-18 — Consultar Cursos por Nivel
+
+**Sprint:** 03 · **Nueva (backlog oficial 2026-05-31)** · 🤖 **Se resuelve vía el AGENTE IA**
+
+> 🤖 **(Carlos 2026-05-31)** La responde el **agente IA** (conocimiento del LLM). **NO** requiere DB de cursos ni catálogo dedicado por ahora; es extensión de US-12.
+
+### Criterios de aceptación
+
+1. DADO un estudiante en el agente IA, CUANDO pregunta por cursos de un nivel/ciclo, ENTONCES el asistente responde con los cursos correspondientes, o informa si no tiene datos.
+
+### Tareas técnicas — Backend
+
+- **Vía agente IA:** reforzar el prompt del agente para responder cursos por nivel. Sin `GET /courses?level=` ni modelo `Course` por ahora.
+- (Opcional futuro) data-driven con `GET /courses?level=` cuando exista `Course` (US-32).
+
+### Tareas técnicas — Frontend (`../smartsched-ulima-web-frontend`)
+
+- Se usa el chat existente (`features/ai-agent`).
+
+### Estado actual
+
+🟡 Respondible por el agente IA. Falta reforzar el prompt.
+
+### Definition of Done
+
+- El estudiante obtiene del agente IA los cursos por nivel; maneja "sin datos". Sin vulnerabilidades High.
 
 ---
 

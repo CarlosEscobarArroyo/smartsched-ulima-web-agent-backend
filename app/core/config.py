@@ -36,6 +36,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Autenticación (US-24)
+    # ⚠️ En producción inyectar JWT_SECRET_KEY por entorno/Secret Manager.
+    jwt_secret_key: str = "dev-insecure-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480  # 8 h (igual al TTL de sesión del FE)
+    max_login_attempts: int = 3  # bloqueo tras 3 intentos fallidos
+    lockout_minutes: int = 15  # duración del bloqueo
+
 
 @lru_cache
 def get_settings() -> Settings:

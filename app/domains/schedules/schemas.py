@@ -6,6 +6,8 @@ un horario con una lista de opciones, cada una con la sección elegida por curso
 Ver `CONTRACTS.md` §2.
 """
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -65,3 +67,33 @@ class GeneratedSchedule(BaseModel):
     id: str
     options: list[GeneratedScheduleOption] = Field(default_factory=list)
     truncated: bool = False
+
+
+class SavedScheduleCreate(BaseModel):
+    """US-09: payload para guardar un horario (la opción elegida)."""
+
+    name: str = Field(min_length=1, max_length=120)
+    schedule_data: dict[str, Any]
+
+
+class SavedScheduleOut(BaseModel):
+    """US-09: horario guardado tal como lo consume el FE (perfil → `schedules`).
+
+    Versión ligera (sin el blob) para la lista de "Mis horarios".
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str
+    saved_at: str = Field(alias="savedAt")
+
+
+class SavedScheduleDetailOut(SavedScheduleOut):
+    """US-09: detalle de un horario guardado, incluye el blob para re-renderizarlo.
+
+    `scheduleData` es el snapshot de la opción elegida (`GeneratedScheduleOption`
+    del FE), tal como se guardó: el FE lo vuelve a pintar en la grilla.
+    """
+
+    schedule_data: dict[str, Any] = Field(alias="scheduleData")

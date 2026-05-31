@@ -4,17 +4,21 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db.url import build_engine_url
+from app.domains.schedules import models as schedules_models  # noqa: F401
+from app.domains.users import models  # noqa: F401  (registra modelos en Base.metadata)
 
 # Importa aquí los models de cada dominio para que Alembic los detecte en autogenerate.
-# Ej.:  from app.users.models import User
-#       from app.schedules.models import Schedule
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+
+# URL normalizada (sin params estilo libpq) + SSL para hosts remotos (Neon).
+_db_url, _connect_args = build_engine_url(get_settings().database_url)
+config.set_main_option("sqlalchemy.url", _db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -41,10 +45,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    connectable = create_async_engine(
+        _db_url,
         poolclass=pool.NullPool,
+        connect_args=_connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
