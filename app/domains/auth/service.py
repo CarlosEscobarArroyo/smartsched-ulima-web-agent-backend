@@ -1,15 +1,20 @@
-"""Lógica de autenticación: login con bloqueo por intentos fallidos (US-24)."""
+"""Lógica de autenticación: login, bloqueo y reset de contraseña (US-24/25)."""
 
+import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, hash_password, verify_password
+from app.domains.auth.models import PasswordResetToken
 from app.domains.auth.schemas import TokenResponse, UserOut
 from app.domains.users import repository
 from app.domains.users.models import User
+from app.integrations.email.client import send_reset_email
 
 
 def _is_locked(user: User, now: datetime) -> bool:
@@ -70,3 +75,58 @@ async def authenticate(db: AsyncSession, email: str, password: str) -> TokenResp
         access_token=token,
         user=UserOut(id=user.id, email=user.email, name=user.name, role=user.role),
     )
+
+
+async def forgot_password(db: AsyncSession, email: str) -> None:
+    """Genera un token de reset y envía el email. Siempre retorna sin error (no revela si el email existe)."""
+    settings = get_settings()
+    user = await repository.get_by_email(db, email)
+    if user is None or not user.is_active:
+        return
+
+    # Invalida tokens anteriores del mismo usuario.
+    await db.execute(
+        delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+    )
+
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.reset_token_expire_minutes)
+    db.add(PasswordResetToken(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        token=token,
+        expires_at=expires_at,
+    ))
+    await db.commit()
+
+    reset_link = f"{settings.frontend_url}/reset-password?token={token}"
+    send_reset_email(user.email, reset_link)
+
+
+async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
+    """Valida el token y actualiza la contraseña. Lanza 400 si el token es inválido o expiró."""
+    now = datetime.now(UTC)
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token == token,
+            PasswordResetToken.used == False,  # noqa: E712
+            PasswordResetToken.expires_at > now,
+        )
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if reset_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El enlace es inválido o ya expiró.",
+        )
+
+    user = await repository.get_by_id(db, reset_token.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario no encontrado.")
+
+    user.password_hash = hash_password(new_password)
+    user.failed_attempts = 0
+    user.locked_until = None
+    reset_token.used = True
+    await db.commit()

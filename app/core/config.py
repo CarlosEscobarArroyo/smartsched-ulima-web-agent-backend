@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     max_login_attempts: int = 3  # bloqueo tras 3 intentos fallidos
     lockout_minutes: int = 15  # duración del bloqueo
 
+    # Restablecimiento de contraseña (US-25)
+    resend_api_key: str | None = None
+    resend_from_email: str = "onboarding@resend.dev"
+    frontend_url: str = "http://localhost:3000"
+    reset_token_expire_minutes: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

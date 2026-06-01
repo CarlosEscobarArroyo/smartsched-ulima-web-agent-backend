@@ -16,14 +16,14 @@ from app.domains.users.models import User, UserRole
 
 SEED_USERS = [
     {
-        "id": "stu-001",
+        "id": "00000000-0000-0000-0000-000000000001",
         "email": "alumno@ulima.edu.pe",
         "name": "Alumno Demo",
         "role": UserRole.STUDENT.value,
         "password": "Alumno123",
     },
     {
-        "id": "adm-001",
+        "id": "00000000-0000-0000-0000-000000000002",
         "email": "admin@ulima.edu.pe",
         "name": "Admin Demo",
         "role": UserRole.ADMIN.value,

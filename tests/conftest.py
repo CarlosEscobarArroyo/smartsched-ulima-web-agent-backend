@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
+from app.domains.admin import models as admin_models  # noqa: F401
 from app.domains.users import models  # noqa: F401  (registra User en Base.metadata)
 from app.domains.users.models import User, UserRole
 from app.main import app
@@ -56,7 +57,7 @@ async def make_user(
     password: str = "Alumno123",
     name: str = "Alumno Demo",
     role: UserRole = UserRole.STUDENT,
-    user_id: str = "stu-001",
+    user_id: str = "00000000-0000-0000-0000-000000000001",
     is_active: bool = True,
 ) -> User:
     """Crea y persiste un usuario de prueba."""

@@ -23,6 +23,7 @@ dependencies = [
     "python-multipart>=0.0.29",
     # Agente IA (US-12): proyecto ADK embebido, corre in-process en el backend.
     "ulima-agent",
+    "resend>=2.30.1",
 ]
 
 [tool.uv.sources]

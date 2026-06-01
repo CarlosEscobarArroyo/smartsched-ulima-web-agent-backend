@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -60,11 +60,15 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), nullable=False, default=UserRole.STUDENT.value)
+    role: Mapped[str] = mapped_column(
+        SAEnum("student", "admin", name="user_role"),
+        nullable=False,
+        default=UserRole.STUDENT.value,
+    )
 
     # Bloqueo por intentos fallidos (CA-2: 3 intentos → 15 min)
     failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

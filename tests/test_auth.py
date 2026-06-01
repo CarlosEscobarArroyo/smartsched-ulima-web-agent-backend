@@ -22,7 +22,7 @@ async def test_login_success(client, db_session):
     assert data["token_type"] == "bearer"
     assert data["access_token"]
     assert data["user"] == {
-        "id": "stu-001",
+        "id": "00000000-0000-0000-0000-000000000001",
         "email": "alumno@ulima.edu.pe",
         "name": "Alumno Demo",
         "role": "student",
@@ -104,7 +104,7 @@ async def test_me_with_token(client, db_session):
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 200
-    assert resp.json()["id"] == "stu-001"
+    assert resp.json()["id"] == "00000000-0000-0000-0000-000000000001"
 
 
 async def test_me_with_invalid_token(client, db_session):
