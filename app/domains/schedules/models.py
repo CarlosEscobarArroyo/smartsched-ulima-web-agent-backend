@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -48,9 +48,9 @@ class SavedSchedule(Base):
 
     __tablename__ = "saved_schedules"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+        Uuid(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     # Snapshot de la opción elegida. JSONB en Postgres, JSON en SQLite (tests).

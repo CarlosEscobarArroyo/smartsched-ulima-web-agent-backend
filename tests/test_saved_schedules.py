@@ -62,8 +62,8 @@ async def test_get_detail_includes_blob(client, db_session):
 
 async def test_get_detail_not_owned_returns_404(client, db_session):
     """No se puede ver el detalle del horario de otro usuario → 404."""
-    owner = await make_user(db_session, email="a@ulima.edu.pe", user_id="u-a")
-    other = await make_user(db_session, email="b@ulima.edu.pe", user_id="u-b")
+    owner = await make_user(db_session, email="a@ulima.edu.pe", user_id="00000000-0000-0000-0000-00000000000a")
+    other = await make_user(db_session, email="b@ulima.edu.pe", user_id="00000000-0000-0000-0000-00000000000b")
     created = (
         await client.post("/api/v1/schedules/saved", json=SAMPLE, headers=_auth(owner))
     ).json()
@@ -99,8 +99,8 @@ async def test_delete(client, db_session):
 
 async def test_delete_not_owned_returns_404(client, db_session):
     """No se puede borrar el horario de otro usuario → 404."""
-    owner = await make_user(db_session, email="a@ulima.edu.pe", user_id="u-a")
-    other = await make_user(db_session, email="b@ulima.edu.pe", user_id="u-b")
+    owner = await make_user(db_session, email="a@ulima.edu.pe", user_id="00000000-0000-0000-0000-00000000000a")
+    other = await make_user(db_session, email="b@ulima.edu.pe", user_id="00000000-0000-0000-0000-00000000000b")
     created = (
         await client.post("/api/v1/schedules/saved", json=SAMPLE, headers=_auth(owner))
     ).json()

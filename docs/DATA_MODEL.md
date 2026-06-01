@@ -1,297 +1,254 @@
 # DATA_MODEL.md — Modelo de datos de SmartSched-Ulima
 
-> **Fuente:** historias de usuario (`CLAUDE.md`) + contrato FE↔BE (`CONTRACTS.md`).
-> **Estado:** solo `users` está implementada (migración Alembic `0001`). El resto es **diseño**;
-> cada tabla se materializa en su propia migración cuando se construya la US correspondiente.
->
-> Motor: **PostgreSQL** (local: Docker `docker compose up -d`; prod: Cloud SQL). SQLAlchemy async + Alembic.
+> **Motor:** PostgreSQL 17 (Neon serverless, `us-east-1`). SQLAlchemy async + Alembic.
+> **Estado:** secciones marcadas con ✅ están implementadas y aplicadas en Neon.
+> Las marcadas con *(diseño)* están planificadas pero pendientes de migración.
 
 ---
 
 ## Convenciones
 
-- **IDs:** `VARCHAR(36)` con **UUID** (string), porque el frontend espera ids string en todas las entidades.
-- **Timestamps:** `TIMESTAMP WITH TIME ZONE`, `created_at` con `server_default=now()`.
-- **Rol:** una sola codificación canónica en BD → `role ∈ {"student","admin"}`. El `"Estudiante"/"Admin"`
-  del panel admin (FE) se mapea en la capa de presentación (ver mismatch #2 de `CONTRACTS.md`).
-- **Borrados:** FKs hacia `users`/`courses`/etc. con `ON DELETE CASCADE` salvo `sections.professor_id`
-  (`SET NULL`: si se borra un profesor, la sección no desaparece).
-- **JSONB** se usa **solo** para el snapshot de un horario guardado (es un documento, no datos a consultar por campo).
-  Todo lo demás está normalizado.
+- **IDs:** tipo `UUID` nativo en PostgreSQL (`Uuid(as_uuid=False)` en SQLAlchemy → retorna strings en Python). Equivale a `CHAR(32)` en SQLite para tests.
+- **Timestamps:** `TIMESTAMP WITH TIME ZONE`. `created_at` con `server_default=now()`; `updated_at` con `server_default=now()` + `onupdate=now()`.
+- **Rol:** ENUM nativo `user_role` en PostgreSQL (`'student' | 'admin'`). En SQLite (tests) equivale a `VARCHAR`.
+- **FK cascade:** por defecto `ON DELETE CASCADE`; excepciones explicitadas por tabla.
+- **JSONB:** solo para `saved_schedules.schedule_data` (snapshot inmutable) y `courses.prerequisites` (lista de códigos de prereqs; se normalizará en una migración futura cuando sea necesario consultarlos).
 - **Nombres:** tablas y columnas en `snake_case`.
 
 ---
 
-## Diagrama ER
+## Diagrama ER — tablas implementadas
 
 ```mermaid
 erDiagram
     users {
         uuid id PK
-        string email UK
-        string name
-        string password_hash
-        string role "student | admin"
+        varchar email UK
+        varchar name
+        varchar password_hash
+        user_role role "student | admin"
         int failed_attempts
-        datetime locked_until "nullable"
+        timestamptz locked_until "nullable"
         bool is_active
-        datetime created_at
+        timestamptz created_at
     }
     saved_schedules {
         uuid id PK
         uuid user_id FK
-        string name
-        jsonb schedule_data "snapshot de la opción"
-        datetime created_at
+        varchar name
+        jsonb schedule_data
+        timestamptz created_at
     }
     professors {
         uuid id PK
-        string name
-        string initials
-        datetime created_at
-    }
-    reviews {
-        uuid id PK
-        uuid user_id FK
-        uuid professor_id FK
-        int rating "1..5"
-        string comment "nullable, <=500"
-        datetime created_at
+        varchar name
+        timestamptz created_at
+        timestamptz updated_at
     }
     courses {
         uuid id PK
-        string code UK "ej. CS101"
-        string name
-        string level "1..10"
-        bool is_published
-        datetime created_at
-    }
-    sections {
-        uuid id PK
-        uuid course_id FK
+        varchar code UK
+        varchar name
+        varchar level
+        jsonb prerequisites "array de códigos"
         uuid professor_id FK "nullable"
-        string name "ej. 853"
-        datetime created_at
-    }
-    section_times {
-        uuid id PK
-        uuid section_id FK
-        string dia "LUN..DOM"
-        string inicio "HH:MM"
-        string fin "HH:MM"
-        string aula "nullable"
-    }
-    course_prerequisites {
-        uuid course_id PK,FK
-        uuid prerequisite_course_id PK,FK
-    }
-    conversations {
-        uuid id PK
-        uuid user_id FK
-        string title
-        string mode "nullable"
-        datetime created_at
-        datetime updated_at
-    }
-    messages {
-        uuid id PK
-        uuid conversation_id FK
-        string role "user | assistant"
-        text content
-        datetime created_at
+        timestamptz created_at
+        timestamptz updated_at
     }
     password_reset_tokens {
         uuid id PK
         uuid user_id FK
-        string token_hash
-        datetime expires_at
-        datetime used_at "nullable"
-        datetime created_at
+        varchar token UK "64 chars, raw"
+        timestamptz expires_at
+        bool used
+        timestamptz created_at
     }
 
     users ||--o{ saved_schedules : "guarda"
-    users ||--o{ reviews : "escribe"
-    users ||--o{ conversations : "tiene"
     users ||--o{ password_reset_tokens : "solicita"
-    professors ||--o{ reviews : "recibe"
-    professors ||--o{ sections : "dicta"
-    courses ||--o{ sections : "tiene"
-    sections ||--o{ section_times : "ocurre en"
-    courses ||--o{ course_prerequisites : "tiene como prereq"
-    courses ||--o{ course_prerequisites : "es prereq de"
-    conversations ||--o{ messages : "contiene"
+    professors ||--o{ courses : "dicta"
 ```
 
 ---
 
-## Tablas
+## Tablas implementadas
 
-### `users` — US-24 ✅ *(implementada, migración 0001)*
-Cuentas autenticables (estudiantes y admins).
+### `users` ✅ — US-24 *(migración 0001, tipo ajustado en 0006)*
+
+| Columna | Tipo PG | Notas |
+|---|---|---|
+| id | `UUID` | PK |
+| email | `VARCHAR(255)` | UNIQUE, index |
+| name | `VARCHAR(120)` | |
+| password_hash | `VARCHAR(255)` | bcrypt |
+| role | `user_role` (ENUM) | `student` \| `admin`; default `student` |
+| failed_attempts | `INTEGER` | default 0 |
+| locked_until | `TIMESTAMPTZ` | null = sin bloqueo |
+| is_active | `BOOLEAN` | default true |
+| created_at | `TIMESTAMPTZ` | server default now() |
+
+Regla: 3 intentos fallidos → `locked_until = now + 15 min`. Login OK resetea contador y bloqueo.
+
+---
+
+### `saved_schedules` ✅ — US-09 *(migración 0002)*
+
+| Columna | Tipo PG | Notas |
+|---|---|---|
+| id | `UUID` | PK |
+| user_id | `UUID` | FK → users (`CASCADE`), index |
+| name | `VARCHAR(120)` | nombre que el usuario asigna |
+| schedule_data | `JSONB` | snapshot completo de la opción (cursos + secciones seleccionadas) |
+| created_at | `TIMESTAMPTZ` | server default now() |
+
+Regla de negocio: **máx. 10 por usuario** — se valida en servicio (409 si excede).
+
+---
+
+### `professors` ✅ — US-32 admin *(migraciones 0003, updated_at en 0007)*
+
+| Columna | Tipo PG | Notas |
+|---|---|---|
+| id | `UUID` | PK |
+| name | `VARCHAR(120)` | |
+| created_at | `TIMESTAMPTZ` | server default now() |
+| updated_at | `TIMESTAMPTZ` | server default now(); `onupdate=now()` |
+
+`initials` **no se persiste** — se deriva del nombre en la capa de servicio (strip de títulos Dr./Dra./Prof./Mg. + primeras letras).
+
+---
+
+### `courses` ✅ — US-32 admin *(migraciones 0004 + 0005, updated_at en 0007)*
+
+| Columna | Tipo PG | Notas |
+|---|---|---|
+| id | `UUID` | PK |
+| code | `VARCHAR(20)` | UNIQUE, index; se almacena en mayúsculas |
+| name | `VARCHAR(120)` | |
+| level | `VARCHAR(10)` | "1".."10" (el FE lo envía como string) |
+| prerequisites | `JSONB` | array de códigos de curso, ej. `["CS101","MAT101"]` |
+| professor_id | `UUID` | FK → professors (`SET NULL`), nullable, index |
+| created_at | `TIMESTAMPTZ` | server default now() |
+| updated_at | `TIMESTAMPTZ` | server default now(); `onupdate=now()` |
+
+`prerequisites` usa JSONB por simplicidad en esta fase. Se normalizará a tabla `course_prerequisites` (M2M) cuando sea necesario filtrar/consultar por prereq.
+
+---
+
+### `password_reset_tokens` ✅ — US-25 *(migración 0009)*
+
+| Columna | Tipo PG | Notas |
+|---|---|---|
+| id | `UUID` | PK |
+| user_id | `UUID` | FK → users (`CASCADE`), index |
+| token | `VARCHAR(64)` | UNIQUE, index; `secrets.token_urlsafe(32)` (raw, no hash) |
+| expires_at | `TIMESTAMPTZ` | now + 60 min (configurable vía `RESET_TOKEN_EXPIRE_MINUTES`) |
+| used | `BOOLEAN` | default false; se marca true al usar el token |
+| created_at | `TIMESTAMPTZ` | server default now() |
+
+Regla: al solicitar un nuevo reset, se eliminan todos los tokens anteriores del mismo usuario. Un token usado o expirado devuelve 400.
+
+---
+
+## Tablas diseñadas — pendientes de implementar
+
+### `reviews` *(diseño — US-21 vía agente IA, diferido)*
+
+Reseñas de usuarios a profesores. US-21 se resuelve actualmente vía agente IA (conocimiento del LLM). Esta tabla se construirá si el sistema pasa a ser data-driven.
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| id | varchar(36) | PK (UUID) |
-| email | varchar(255) | **UNIQUE**, index |
-| name | varchar(120) | |
-| password_hash | varchar(255) | bcrypt |
-| role | varchar(20) | `student` \| `admin` (default `student`) |
-| failed_attempts | int | default 0 |
-| locked_until | timestamptz | null = no bloqueado |
-| is_active | bool | default true |
-| created_at | timestamptz | default now() |
+| id | UUID | PK |
+| user_id | UUID | FK → users (CASCADE) |
+| professor_id | UUID | FK → professors (CASCADE) |
+| rating | INTEGER | CHECK 1..5 |
+| comment | VARCHAR(500) | nullable |
+| created_at | TIMESTAMPTZ | |
 
-Reglas: 3 intentos fallidos → `locked_until = now + 15 min`; login OK resetea contador.
+Constraint: `UNIQUE(user_id, professor_id)` — una reseña por usuario por profesor.
 
-### `saved_schedules` — US-09
-Horarios que el estudiante guarda desde "Horarios Generados".
+---
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| user_id | varchar(36) | FK → users (CASCADE), index |
-| name | varchar(120) | nombre que pone el usuario |
-| schedule_data | jsonb | snapshot de la opción elegida (cursos + secciones) |
-| created_at | timestamptz | |
+### `sections` + `section_times` *(diseño — US-32 completo, diferido)*
 
-Regla de negocio: **máx. 10 por usuario** (se valida en el servicio, `409` si excede).
+Secciones de un curso con sus bloques horarios normalizados. Conectarán el catálogo admin con el generador de horarios.
 
-### `professors` — US-21
-Profesores (entidad única; la vista estudiante y la vista admin son dos proyecciones de esto).
+**`sections`**
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| id | varchar(36) | PK |
-| name | varchar(120) | |
-| initials | varchar(8) | derivadas del name (quitando Dr./Dra./Prof./Mg./Ing./Lic.) |
-| created_at | timestamptz | |
+| id | UUID | PK |
+| course_id | UUID | FK → courses (CASCADE) |
+| professor_id | UUID | FK → professors (SET NULL), nullable |
+| name | VARCHAR(10) | "A", "01", "853" |
+| created_at | TIMESTAMPTZ | |
 
-`rating` promedio y `reviewCount` **no se persisten**: se calculan por agregación sobre `reviews`.
-No se vincula a `users` (un profesor no inicia sesión).
+Constraint: `UNIQUE(course_id, name)`.
 
-### `reviews` — US-21
-Reseña de un usuario a un profesor.
-
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| user_id | varchar(36) | FK → users (CASCADE), index |
-| professor_id | varchar(36) | FK → professors (CASCADE), index |
-| rating | int | CHECK 1..5 |
-| comment | varchar(500) | nullable |
-| created_at | timestamptz | |
-
-Constraint: **UNIQUE(user_id, professor_id)** → una reseña por usuario por profesor (`409` si duplica).
-
-### `courses` — US-32
-Cursos administrables y publicables.
+**`section_times`**
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| id | varchar(36) | PK |
-| code | varchar(12) | **UNIQUE** (regex `^[A-Z]{2,4}\d{2,4}$`, ej. `CS101`) |
-| name | varchar(120) | |
-| level | varchar(2) | "1".."10" (el FE lo manda como string) |
-| is_published | bool | default false (solo los publicados los ven los estudiantes) |
-| created_at | timestamptz | |
+| id | UUID | PK |
+| section_id | UUID | FK → sections (CASCADE) |
+| dia | VARCHAR(3) | LUN/MAR/MIE/JUE/VIE/SAB/DOM |
+| inicio | VARCHAR(5) | "HH:MM" |
+| fin | VARCHAR(5) | "HH:MM" |
+| aula | VARCHAR(20) | nullable |
 
-### `sections` — US-32
-Secciones de un curso.
+Alimentará el generador (US-07) reemplazando el shape manual que hoy envía el frontend.
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| course_id | varchar(36) | FK → courses (CASCADE), index |
-| professor_id | varchar(36) | FK → professors (**SET NULL**), nullable |
-| name | varchar(10) | "A", "01", "853" |
-| created_at | timestamptz | |
+---
 
-Constraint: **UNIQUE(course_id, name)**.
+### `conversations` + `messages` *(diseño — US-13/14, diferido)*
 
-### `section_times` — US-32
-Bloques horarios de cada sección (normalizado: una fila por bloque).
+Persistencia del chat del agente IA. Hoy las conversaciones son **in-memory** (`chat/store.py`).
+
+**`conversations`**
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| id | varchar(36) | PK |
-| section_id | varchar(36) | FK → sections (CASCADE), index |
-| dia | varchar(3) | LUN/MAR/MIE/JUE/VIE/SAB/DOM |
-| inicio | varchar(5) | "HH:MM" |
-| fin | varchar(5) | "HH:MM" |
-| aula | varchar(20) | nullable |
+| id | UUID | PK |
+| user_id | UUID | FK → users (CASCADE) |
+| title | VARCHAR(200) | |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | |
 
-Alimenta el generador (US-07) y se reconstruye al shape `horario[]` que consume el FE.
-
-### `course_prerequisites` — US-32
-Prerrequisitos entre cursos (M2M auto-referencial).
+**`messages`**
 
 | Columna | Tipo | Notas |
 |---|---|---|
-| course_id | varchar(36) | PK, FK → courses (CASCADE) |
-| prerequisite_course_id | varchar(36) | PK, FK → courses (CASCADE) |
+| id | UUID | PK |
+| conversation_id | UUID | FK → conversations (CASCADE) |
+| role | VARCHAR(10) | `user` \| `assistant` |
+| content | TEXT | |
+| created_at | TIMESTAMPTZ | |
 
-PK compuesta `(course_id, prerequisite_course_id)`; CHECK `course_id <> prerequisite_course_id`.
-El FE manda los prereqs como CSV (`"CS101, MAT101"`) → se parsean a filas.
+---
 
-### `conversations` — US-12
-Conversaciones del chat con el agente IA (hoy **in-memory**; esta tabla las persiste).
+## Historial de migraciones
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| user_id | varchar(36) | FK → users (CASCADE), index |
-| title | varchar(200) | |
-| mode | varchar(30) | nullable: `professorReputation`\|`courseDifficulty`\|`coursePrerequisites` |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
-
-### `messages` — US-12
-Mensajes de una conversación.
-
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| conversation_id | varchar(36) | FK → conversations (CASCADE), index |
-| role | varchar(10) | `user` \| `assistant` |
-| content | text | |
-| created_at | timestamptz | |
-
-### `password_reset_tokens` — US-25 *(diferido)*
-Tokens temporales para restablecer contraseña (flujo con enlace por correo).
-
-| Columna | Tipo | Notas |
-|---|---|---|
-| id | varchar(36) | PK |
-| user_id | varchar(36) | FK → users (CASCADE), index |
-| token_hash | varchar(255) | se guarda el **hash** del token, no el token plano |
-| expires_at | timestamptz | ej. now + 1 h |
-| used_at | timestamptz | nullable (null = no usado) |
-| created_at | timestamptz | |
+| # | Archivo | Qué hace | Estado |
+|---|---|---|---|
+| 0001 | `create_users_table` | Tabla `users` | ✅ Neon |
+| 0002 | `create_saved_schedules` | Tabla `saved_schedules` | ✅ Neon |
+| 0003 | `create_professors_table` | Tabla `professors` | ✅ Neon |
+| 0004 | `create_courses_table` | Tabla `courses` (sin professor_id) | ✅ Neon |
+| 0005 | `add_professor_id_to_courses` | Columna `courses.professor_id` + FK | ✅ Neon |
+| 0006 | `native_uuid_and_role_enum` | IDs a UUID nativo; `role` a ENUM `user_role` | ✅ Neon |
+| 0007 | `add_updated_at` | Columna `updated_at` en professors y courses | ✅ Neon |
+| 0008 | `add_updated_at_defaults` | `DEFAULT now()` para updated_at (fix post-migración) | ✅ Neon |
+| 0009 | `create_password_reset_tokens` | Tabla `password_reset_tokens` | ✅ Neon |
 
 ---
 
 ## Decisiones de diseño
 
-1. **Horarios de sección normalizados** (`section_times`) en vez de JSONB → más correcto relacionalmente y mejor para la sustentación.
-2. **Prerrequisitos como M2M auto-referencial** (`course_prerequisites`) en vez de CSV.
-3. **`saved_schedules.schedule_data` en JSONB** → es un snapshot/documento, no datos a consultar por campo.
-4. **Profesor ≠ usuario**: `professors` es entidad propia, sin login.
-5. **`rating`/`reviewCount` calculados** por agregación, no persistidos (evita desincronización).
-6. **Rol canónico `student`/`admin`** en BD; el español capitalizado del FE admin se mapea fuera.
-7. **IDs UUID string** en todas las tablas (consistencia con el FE).
-
----
-
-## Estado y orden de migraciones
-
-| # | Migración | Tablas | Estado |
-|---|---|---|---|
-| 0001 | `create_users_table` | `users` | ✅ hecha |
-| 0002 | `create_saved_schedules` | `saved_schedules` | ✅ escrita (US-09; falta aplicarla a la BD) |
-| 0003 | *(sugerida)* | `professors`, `reviews` | pendiente (US-21) |
-| 0004 | *(sugerida)* | `courses`, `sections`, `section_times`, `course_prerequisites` | pendiente (US-32) |
-| 0005 | *(sugerida)* | `conversations`, `messages` | pendiente (US-12, persistir chat) |
-| 0006 | *(sugerida)* | `password_reset_tokens` | pendiente (US-25, diferido) |
-
-> Al crear cada modelo, importarlo en `app/db/migrations/env.py` para que Alembic lo detecte,
-> y generar la migración con `uv run alembic revision --autogenerate -m "..."`.
+1. **UUID nativo** en PostgreSQL (migración 0006) — consistencia real de tipo, mejor rendimiento en índices y JOINs. En SQLite (tests) SQLAlchemy usa `CHAR(32)`; los tests usan UUIDs válidos.
+2. **ENUM `user_role`** — garantía a nivel DB, no solo aplicación.
+3. **`prerequisites` en JSONB** (fase actual) — simplicidad mientras no se necesita filtrar por prereq. Se normalizará a M2M cuando el generador consuma el catálogo admin.
+4. **`updated_at` en professors y courses** — útil para el frontend (ordenar por última modificación, detectar cambios).
+5. **Token de reset raw** (no hash) — `secrets.token_urlsafe(32)` es suficientemente seguro para tokens de un solo uso con expiración de 60 min. Si se requiere mayor seguridad, se puede migrar a SHA-256.
+6. **Profesor ≠ usuario** — `professors` no tiene login. Es una entidad del catálogo académico.
+7. **`saved_schedules.schedule_data` en JSONB** — snapshot inmutable; no se consulta por campo.
+8. **Neon fuera de GCP** — excepción aceptada para la BD (free tier, escala a cero). Todo el compute sigue en `ulima-agent`.

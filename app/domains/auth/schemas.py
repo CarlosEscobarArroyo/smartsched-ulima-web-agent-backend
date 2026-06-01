@@ -1,4 +1,4 @@
-"""Schemas Pydantic del dominio de autenticación (US-24)."""
+"""Schemas Pydantic del dominio de autenticación (US-24/25)."""
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -25,3 +25,21 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class UserUpdateMe(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    email: EmailStr
+
+
+class MessageResponse(BaseModel):
+    message: str
