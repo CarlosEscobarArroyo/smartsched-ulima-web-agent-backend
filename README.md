@@ -14,6 +14,7 @@ El **frontend** (Next.js) vive en el repo hermano `../smartsched-ulima-web-front
 - **Neon** (PostgreSQL 17 serverless — producción y desarrollo)
 - **uv** (gestor de dependencias y entorno virtual)
 - **Google Gemini** (OCR multimodal) + **Vertex AI ADK** (agente IA)
+- **SMTP de Gmail** (envío de emails — reset de contraseña, vía `smtplib`)
 - **pytest** + **httpx** + **SQLite in-memory** (tests, sin tocar Neon)
 
 ---
@@ -31,10 +32,11 @@ app/
 ├── api/v1/
 │   └── router.py          ← agrega todos los routers bajo /api/v1
 ├── domains/
-│   ├── auth/              ← login, JWT, bloqueo por intentos fallidos
-│   │   ├── router.py      ← POST /auth/login, GET /auth/me
+│   ├── auth/              ← login, JWT, bloqueo, reset de contraseña
+│   │   ├── router.py      ← POST /auth/login, GET /auth/me, POST /auth/forgot-password, POST /auth/reset-password
 │   │   ├── schemas.py
 │   │   ├── service.py
+│   │   ├── models.py      ← ORM PasswordResetToken
 │   │   └── deps.py        ← get_current_user, require_role
 │   ├── users/             ← ORM User + repositorio
 │   │   ├── models.py
@@ -60,6 +62,8 @@ app/
 │   ├── ocr/               ← Gemini multimodal (process-image)
 │   ├── generator/         ← backtracking sin choques
 │   ├── agent/             ← cliente ulima-agent (ADK in-process)
+│   ├── email/             ← SMTP de Gmail (reset de contraseña)
+│   │   └── client.py      ← send_reset_email; fallback a log si SMTP sin configurar
 │   └── bucket/            ← GCS (huérfano, sin uso en el flujo actual)
 ├── db/
 │   ├── base.py
@@ -71,7 +75,11 @@ app/
 │           ├── 0002_create_saved_schedules.py
 │           ├── 0003_create_professors_table.py
 │           ├── 0004_create_courses_table.py
-│           └── 0005_add_professor_id_to_courses.py
+│           ├── 0005_add_professor_id_to_courses.py
+│           ├── 0006_native_uuid_and_role_enum.py
+│           ├── 0007_add_updated_at.py
+│           ├── 0008_add_updated_at_defaults.py
+│           └── 0009_create_password_reset_tokens.py
 └── health/
     └── router.py
 tests/
@@ -94,9 +102,17 @@ Edita `.env` con la connection string de Neon y el JWT secret:
 ```env
 DATABASE_URL=postgresql://usuario:password@host.neon.tech/dbname?sslmode=require
 JWT_SECRET_KEY=tu-secreto-aqui
+
+# Opcional — reset de contraseña vía SMTP de Gmail.
+# SMTP_PASSWORD es una CONTRASEÑA DE APLICACIÓN (https://myaccount.google.com/apppasswords, requiere 2FA).
+SMTP_USER=tucuenta@gmail.com
+SMTP_PASSWORD=xxxxxxxxxxxxxxxx
+SMTP_FROM_NAME=SmartSched ULIMA
+FRONTEND_URL=http://localhost:3000
 ```
 
 > Usar la string **directa** de Neon (no la `-pooler`). `app/db/url.py` normaliza el esquema y los parámetros SSL automáticamente.
+> Sin `SMTP_USER`/`SMTP_PASSWORD`, el backend corre en modo dev: el enlace de reset se imprime en el log del servidor en vez de enviarse por email.
 
 ### 2. Dependencias
 
@@ -110,7 +126,7 @@ uv sync
 uv run alembic upgrade head
 ```
 
-Aplica las 5 migraciones y crea las tablas `users`, `saved_schedules`, `professors` y `courses` en Neon.
+Aplica las 9 migraciones y crea las tablas `users`, `saved_schedules`, `professors`, `courses` y `password_reset_tokens` en Neon.
 
 ### 4. Seed de usuarios (opcional)
 
@@ -150,7 +166,7 @@ Al agregar un nuevo modelo ORM, registrarlo en `app/db/migrations/env.py` **y** 
 ## Tests
 
 ```bash
-uv run pytest                              # 71 tests (SQLite in-memory, sin tocar Neon)
+uv run pytest                              # 78 tests (SQLite in-memory, sin tocar Neon)
 uv run pytest tests/test_admin.py          # un archivo
 uv run pytest --cov=app --cov-report=term  # cobertura
 uv run ruff check .                        # lint
@@ -168,6 +184,8 @@ Los tests usan SQLite en memoria via `conftest.py` (StaticPool + override de `ge
 | GET | `/api/v1/health` | — | liveness check |
 | POST | `/api/v1/auth/login` | — | login → JWT (bloqueo 3 intentos / 15 min) |
 | GET | `/api/v1/auth/me` | Bearer | usuario autenticado |
+| POST | `/api/v1/auth/forgot-password` | — | solicita reset (siempre 200; email con enlace si existe) |
+| POST | `/api/v1/auth/reset-password` | — | cambia contraseña con token (400 si inválido/expirado/usado) |
 | POST | `/api/v1/ocr/process-image` | — | imágenes → Gemini multimodal → `{cursos}` |
 | POST | `/api/v1/schedules/generate` | — | genera combinaciones sin choques |
 | POST | `/api/v1/schedules/saved` | Bearer | guarda horario (tope 10) |
@@ -196,10 +214,11 @@ La BD está **fuera de GCP** (excepción aceptada para el free tier). Código 10
 
 | Tabla | Descripción |
 |---|---|
-| `users` | Autenticación (rol student/admin, bloqueo por intentos) |
-| `saved_schedules` | Horarios guardados por usuario (FK CASCADE, max 10) |
+| `users` | Autenticación (rol student/admin, bloqueo por intentos, UUID nativo) |
+| `saved_schedules` | Horarios guardados por usuario (FK CASCADE, max 10, schedule_data JSONB) |
 | `professors` | Catálogo de docentes (panel admin) |
 | `courses` | Catálogo de cursos (FK profesor nullable, prereqs JSONB) |
+| `password_reset_tokens` | Tokens de reset (un uso, expiran 60 min, previos se eliminan al re-solicitar) |
 
 ---
 

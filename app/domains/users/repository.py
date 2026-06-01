@@ -63,6 +63,20 @@ async def update_by_id(
     return user
 
 
+async def update_me_fields(
+    db: AsyncSession,
+    user: User,
+    *,
+    name: str,
+    email: str,
+) -> User:
+    user.name = name
+    user.email = email.lower()
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
 async def delete_by_id(db: AsyncSession, user_id: str) -> bool:
     user = await get_by_id(db, user_id)
     if user is None:

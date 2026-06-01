@@ -103,6 +103,19 @@ async def forgot_password(db: AsyncSession, email: str) -> None:
     send_reset_email(user.email, reset_link)
 
 
+async def update_me(db: AsyncSession, current_user: User, name: str, email: str) -> UserOut:
+    """Actualiza nombre y email del usuario autenticado. 409 si el email ya pertenece a otra cuenta."""
+    if email.lower() != current_user.email:
+        existing = await repository.get_by_email(db, email)
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El correo ya está en uso por otra cuenta.",
+            )
+    updated = await repository.update_me_fields(db, current_user, name=name, email=email)
+    return UserOut(id=updated.id, email=updated.email, name=updated.name, role=updated.role)
+
+
 async def reset_password(db: AsyncSession, token: str, new_password: str) -> None:
     """Valida el token y actualiza la contraseña. Lanza 400 si el token es inválido o expiró."""
     now = datetime.now(UTC)

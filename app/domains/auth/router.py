@@ -15,6 +15,7 @@ from app.domains.auth.schemas import (
     ResetPasswordRequest,
     TokenResponse,
     UserOut,
+    UserUpdateMe,
 )
 from app.domains.users.models import User
 
@@ -34,6 +35,16 @@ async def login(
 async def me(current: Annotated[User, Depends(get_current_user)]) -> UserOut:
     """Devuelve el usuario autenticado (valida el token)."""
     return UserOut(id=current.id, email=current.email, name=current.name, role=current.role)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    payload: UserUpdateMe,
+    current: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UserOut:
+    """Actualiza nombre y email del usuario autenticado (US-26)."""
+    return await service.update_me(db, current, payload.name, payload.email)
 
 
 @router.post("/forgot-password", response_model=MessageResponse)

@@ -44,9 +44,14 @@ class Settings(BaseSettings):
     max_login_attempts: int = 3  # bloqueo tras 3 intentos fallidos
     lockout_minutes: int = 15  # duración del bloqueo
 
-    # Restablecimiento de contraseña (US-25)
-    resend_api_key: str | None = None
-    resend_from_email: str = "onboarding@resend.dev"
+    # Restablecimiento de contraseña (US-25) — email vía SMTP de Gmail.
+    # Si smtp_user/smtp_password están vacíos, el backend corre en modo dev:
+    # imprime el enlace de reset en el log en vez de enviar el correo.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587  # TLS (STARTTLS); 465 sería SSL directo
+    smtp_user: str | None = None  # correo de envío (cuenta Gmail)
+    smtp_password: str | None = None  # contraseña de aplicación de Gmail (no la normal)
+    smtp_from_name: str = "SmartSched ULIMA"
     frontend_url: str = "http://localhost:3000"
     reset_token_expire_minutes: int = 60
 
