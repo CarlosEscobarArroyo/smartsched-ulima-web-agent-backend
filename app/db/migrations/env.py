@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.db.url import build_engine_url
 from app.domains.admin import models as admin_models  # noqa: F401
 from app.domains.auth import models as auth_models  # noqa: F401
+from app.domains.chat import models as chat_models  # noqa: F401
 from app.domains.schedules import models as schedules_models  # noqa: F401
 from app.domains.users import models  # noqa: F401  (registra modelos en Base.metadata)
 

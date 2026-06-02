@@ -1,0 +1,27 @@
+# Filtra lo que entra al contexto de build de Docker (acelera y aligera la imagen).
+.git
+.gitignore
+.venv
+**/.venv
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Secretos y entornos locales — NUNCA dentro de la imagen.
+.env
+.env.*
+backend.env.yaml
+
+# No se necesitan en runtime.
+tests
+docs
+*.md
+docker-compose.yml
+Makefile
+.dockerignore
+.gcloudignore

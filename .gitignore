@@ -35,6 +35,8 @@ htmlcov/
 .env
 .env.local
 .env.*.local
+# Variables de Cloud Run con secretos reales (la plantilla .example SÍ se commitea)
+backend.env.yaml
 
 # OS
 .DS_Store

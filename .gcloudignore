@@ -1,0 +1,22 @@
+# Qué NO se sube a Cloud Build al hacer `gcloud run deploy --source`.
+# OJO: si este archivo existe, gcloud IGNORA .gitignore. Por eso se lista
+# todo lo pesado/sensible explícitamente, manteniendo app/ y ulima-agent/.
+.git
+.gitignore
+.venv
+**/.venv
+**/__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# Secretos / entornos locales.
+.env
+.env.*
+backend.env.yaml
+
+# No aporta al build de la imagen.
+docker-compose.yml

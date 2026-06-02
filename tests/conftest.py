@@ -11,6 +11,8 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.domains.admin import models as admin_models  # noqa: F401
+from app.domains.chat import models as chat_models  # noqa: F401  (registra Conversation/Message)
+from app.domains.schedules import models as schedules_models  # noqa: F401
 from app.domains.users import models  # noqa: F401  (registra User en Base.metadata)
 from app.domains.users.models import User, UserRole
 from app.main import app

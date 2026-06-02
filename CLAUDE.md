@@ -138,6 +138,18 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 > - **Pendiente para cerrar la DoD formal:** CA-2 auth real (US-24), CA-3 (<3s) sin medir, persistencia
 >   `Conversation`/`Message` + Alembic, eval del agente, deploy a Cloud Run, code review + merge. Sin commitear aún.
 
+> **🟢 Actualización 2026-06-01 — US-13/US-14 PERSISTENCIA EN BD del chat (backend). Sin commitear.**
+> Se eliminó el `app/domains/chat/store.py` in-memory y el dominio `chat/` pasó al patrón estándar (como `auth/`/`admin/`):
+> - **ORM** `chat/models.py`: `Conversation` (id, **`user_id` FK→users CASCADE**, title, mode, adk_session_id, created_at, updated_at) + `Message` (id, conversation_id FK CASCADE, role, content, created_at). `Message.created_at` se fija **en Python al insertar** para un orden estable user→assistant (un `server_default now()` daría a ambos el mismo instante de transacción).
+> - **`chat/repository.py`** (consultas async que **siempre filtran por `user_id`** → ownership) + **`chat/service.py`** (`ChatService(agent, db)`, métodos async por usuario) + **`chat/router.py` ahora protegido con `get_current_user`**: TODOS los endpoints de chat exigen `Authorization: Bearer`; ver/eliminar/enviar valida dueño → **404 si la conversación no es suya** (no se filtra existencia).
+> - **Migración `0010_create_conversations_and_messages`** (down_revision `0009`; UUID nativo, FKs CASCADE, índices en `user_id`/`conversation_id`). Registrada en `migrations/env.py` y `tests/conftest.py`. DDL offline validado para Postgres.
+> - **Sesión ADK efímera resuelta:** nuevo `UlimaAgentClient.ensure_session(session_id, user_id)` revalida la sesión in-memory contra el runner y la **recrea si se perdió tras un reinicio** (el historial visible no se pierde: vive en la BD). Crear conversación ya NO crea sesión ADK (perezosa al primer mensaje).
+> - **Tests** `tests/test_chat.py` reescritos (fake agent vía override de `get_ulima_agent` + token + SQLite, cubre persistencia, historial multi-petición y aislamiento por usuario): **13 pasan → suite total 90 passed.** ruff/mypy limpios en `chat/` (se resolvió de paso la deuda mypy de `chat/router.py:44`).
+> - **✅ FE cableado + migración aplicada (2026-06-01):** `features/ai-agent/api.ts` ya envía `Authorization: Bearer` (`getToken()`); la carga inicial se movió al **cliente** (`AIAgent.tsx` recarga en `useEffect` de montaje, porque el token vive en localStorage y la página es server component). Migración **`0010` aplicada a Neon** (`alembic upgrade head` → 0009→0010 head). **Smoke test EN VIVO contra Neon OK:** 401 sin token; crear/listar/detalle/eliminar con token; 404 tras borrar.
+
+> **🟢 Actualización 2026-06-01 (noche) — Fix MEMORIA del agente: rehidratación de sesión ADK.**
+> Las sesiones del `InMemoryRunner` son efímeras: tras un reinicio (`--reload`) o al **reabrir una conversación vieja**, la sesión ADK se perdía y el agente olvidaba el contexto aunque la BD mostrara el historial. **Fix:** `UlimaAgentClient.ensure_session(session_id, user_id, history)` — cuando crea una sesión nueva, la **siembra con el historial persistido** (`_seed_history` → `session_service.append_event` con eventos `role="user"`/`"model"`); si la sesión sigue viva, se reutiliza (no se siembra → no duplica). El `ChatService.send_message` pasa `history=[(m.role,m.content) for m in conversation.messages]`. **VERIFICADO EN VIVO:** msg1 "me llamo Pedro… Cálculo I" → `touch app/main.py` (reload, borra runner) → msg2 → "Recuerdo… Pedro Quispe… Cálculo I". Test `test_rehidrata_sesion_con_historial`; **suite 91 passed**, ruff limpio (mypy: solo deuda preexistente de `agent/` por stubs). ⚠️ Nota: el ejemplo inicial de Carlos ("¿sabes cómo me llamo?") era engañoso — el saludo "Hola Carlos" lo pone el FE (`initialMessages.ts`, estático), no el agente. Al tocar ADK se usó el skill `google-agents-cli-adk-code`.
+
 > **🟢 Actualización 2026-05-31 (tarde) — US-09 Guardar horario CERRADA end-to-end (FE↔BE↔Neon). Sin commitear.**
 > El backend de US-09 ya estaba; esta tanda completó el **FE** y agregó el **detalle**:
 > - **Nuevo endpoint BE:** `GET /api/v1/schedules/saved/{id}` → `SavedScheduleDetailOut` = `{id, name, savedAt, scheduleData}` (la lista NO expone el blob; el detalle SÍ, para re-renderizar). `saved_service.get_saved_schedule` (404 si no es del usuario). 3 tests nuevos → **suite 43 passed**, ruff/mypy limpios.
@@ -191,11 +203,11 @@ Next.js 16 + React 19 + Tailwind 4 + Zod 4 + Lucide icons.
 | GET | `/api/v1/schedules/saved` | ✅ | **US-09** 🔒: lista los horarios guardados del usuario (ligero, sin blob). **Conectado al FE** (perfil → Mis horarios). |
 | GET | `/api/v1/schedules/saved/{id}` | ✅ | **US-09** 🔒: detalle con `scheduleData` (para re-renderizar). 404 si no es del usuario. **Conectado al FE** (botón "Ver"). |
 | DELETE | `/api/v1/schedules/saved/{id}` | ✅ | **US-09** 🔒: elimina (204; 404 si no es del usuario). **Conectado al FE** (eliminar en Mis horarios). |
-| POST | `/api/v1/chat` | ✅ | Agente ADK real in-process. Body `{conversation_id, message}` → `{reply, conversation_id}`. Sin auth. |
-| GET | `/api/v1/chat/conversations` | ✅ | lista conversaciones (in-memory) |
-| POST | `/api/v1/chat/conversations` | ✅ | crea conversación (in-memory) |
-| GET | `/api/v1/chat/conversations/{id}` | ✅ | detalle con mensajes |
-| DELETE | `/api/v1/chat/conversations/{id}` | ✅ | elimina conversación |
+| POST | `/api/v1/chat` | ✅ | **US-12/13** 🔒: agente ADK in-process + persiste user/assistant. Body `{conversation_id, message}` → `{reply, conversation_id}`. 404 si la conversación no es del usuario. |
+| GET | `/api/v1/chat/conversations` | ✅ | **US-13** 🔒: lista conversaciones del usuario (persistidas, ordenadas por `updated_at`) |
+| POST | `/api/v1/chat/conversations` | ✅ | **US-13** 🔒: crea conversación ligada al usuario (sesión ADK perezosa) |
+| GET | `/api/v1/chat/conversations/{id}` | ✅ | **US-13** 🔒: detalle con mensajes (404 si no es suya) |
+| DELETE | `/api/v1/chat/conversations/{id}` | ✅ | **US-14** 🔒: elimina conversación del usuario (204; 404 si no es suya) |
 | GET | `/static/chatbot.png` | ✅ | avatar del agente (StaticFiles) |
 | POST | `/api/v1/upload/` | ✅ | sube 1 archivo a GCS. **Huérfano**: el FE no lo llama (ver decisión OCR del 2026-05-29). |
 | POST | `/api/v1/upload/multiple/` | ✅ | sube varios archivos a GCS. Huérfano (sin uso en el flujo). |
@@ -238,9 +250,9 @@ Dos sentidos distintos. **Conectado FE↔BE: US-01, US-02, US-07, US-12 y US-24 
 | US-09 Guardar horario | ✅ botón "Guardar" real (modal nombrar) + "Mis horarios" real (listar/ver/eliminar) | ✅ `POST/GET/GET{id}/DELETE /schedules/saved` (🔒, tope 10) **vivo en Neon** | 🟢 **SÍ (vivo 2026-05-31)** por API | prueba manual en navegador |
 | US-10 Descargar horario | ❌ no hay descarga | n/a (o PDF server-side) | ❌ | exportar PDF/imagen en el FE (o endpoint de PDF) |
 | US-11 Generar nuevo horario | ✅ "Crear nuevo"/"Finalizar" reinician el wizard (`reset`/`clearPersisted`) | n/a | 🟢 FE puro | prácticamente hecho; Carlos decidió NO confirmación destructiva |
-| US-12 Chat IA | ✅ conectado (real) | ✅ agente ADK real in-process + conversaciones in-memory | 🟢 **SÍ (in-memory)** | falta: auth real (US-24), persistencia DB, <3s, eval, deploy |
-| US-13 Guardar conversaciones | ✅ lista/usa conversaciones (in-memory) | 🟡 in-memory (`chat/store.py`), sin DB ni `user_id` | 🟡 in-memory | persistir `Conversation`/`Message` + ligar al usuario |
-| US-14 Eliminar conversaciones | ✅ papelera para eliminar | ✅ `DELETE /chat/conversations/{id}` (in-memory) | 🟢 SÍ (in-memory) | persistencia + validar ownership |
+| US-12 Chat IA | ✅ conectado (envía Bearer) | ✅ agente ADK in-process + **conversaciones persistidas en BD (protegido)** | 🟢 **SÍ (vivo en Neon 2026-06-01)** | falta: enviar mensaje desde navegador, CA-3 <3s, eval, deploy |
+| US-13 Guardar conversaciones | ✅ lista/usa conversaciones (con token) | ✅ **persistido** (`chat/models.py` `Conversation`/`Message`, `user_id` FK, mig. 0010 aplicada) | 🟢 **SÍ (vivo en Neon 2026-06-01)** | prueba manual de enviar mensaje en navegador |
+| US-14 Eliminar conversaciones | ✅ papelera para eliminar | ✅ `DELETE /chat/conversations/{id}` **persistido + valida ownership (404)** | 🟢 **SÍ (vivo en Neon 2026-06-01)** | confirmación destructiva (decisión FE) |
 | US-15 Consultar reputación profesor 🤖 | vía **agente IA** (chat) | 🟡 agente IA (US-12) responde del LLM | 🟡 (vía chat) | reforzar el prompt del agente; **NO** requiere sección de profesores ni tablas `Professor`/`Review` aún |
 | US-16 Consultar dificultad de curso 🤖 | vía **agente IA** (chat) | 🟡 agente IA responde del LLM | 🟡 (vía chat) | reforzar prompt; sin DB de cursos aún |
 | US-17 Consultar prerrequisitos 🤖 | vía **agente IA** (chat) | 🟡 agente IA responde del LLM | 🟡 (vía chat) | reforzar prompt; sin tabla `course_prerequisites` aún |
@@ -1268,7 +1280,7 @@ No implementado (hoy el botón "Guardar" está deshabilitado y no hay descarga).
 
 ### Estado actual
 
-🟡 Parcial: el chat funciona pero **in-memory, sin DB y sin `user_id`** (decisión de fase US-12). Falta persistencia + binding al usuario (depende de US-24, ya vivo).
+🟢 **Backend listo (2026-06-01):** conversaciones y mensajes **persistidos en BD** (`chat/models.py` `Conversation`/`Message`, FK `user_id` CASCADE, migración `0010`), ligados al usuario autenticado y protegidos con `get_current_user`. Repositorio filtra por `user_id` y el detalle reconstruye el historial. **Falta solo (FE):** que `features/ai-agent` envíe `Authorization: Bearer` (`getToken()`) — hoy daría 401 — y aplicar la migración a Neon (`alembic upgrade head`).
 
 ### Definition of Done
 
@@ -1295,7 +1307,7 @@ No implementado (hoy el botón "Guardar" está deshabilitado y no hay descarga).
 
 ### Estado actual
 
-🟢 Funcional in-memory (papelera en FE + endpoint DELETE). Falta: persistencia (US-13) + validación de ownership + confirmación.
+🟢 **Backend listo (2026-06-01):** `DELETE /chat/conversations/{id}` **persistido** y con **validación de ownership** (404 si la conversación no es del usuario). Falta: que el FE envíe `Authorization: Bearer` y, si el CA lo exige, confirmación destructiva (decisión FE). Papelera en FE ya existe.
 
 ### Definition of Done
 

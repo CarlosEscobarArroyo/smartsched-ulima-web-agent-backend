@@ -56,6 +56,65 @@ class UlimaAgentClient:
         )
         return session.id
 
+    async def ensure_session(
+        self,
+        session_id: str | None,
+        user_id: str = ANONYMOUS_USER_ID,
+        history: list[tuple[str, str]] | None = None,
+    ) -> str:
+        """Devuelve un session_id ADK válido, creando uno nuevo si hace falta.
+
+        Las sesiones del runner son in-memory: tras reiniciar el backend (o al
+        reabrir una conversación antigua), el `adk_session_id` guardado queda
+        obsoleto. Aquí se revalida contra el runner; si ya no existe, se crea una
+        sesión nueva y se **rehidrata con el historial persistido** (`history` =
+        lista de `(role, content)` en orden), para que el agente recupere el
+        contexto que el usuario sí ve en pantalla (US-13). Si la sesión sigue
+        viva, se reutiliza tal cual (no se siembra → no se duplica).
+        """
+        runner = self._get_runner()
+        if session_id:
+            try:
+                existing = await runner.session_service.get_session(
+                    app_name=APP_NAME, user_id=user_id, session_id=session_id
+                )
+                if existing is not None:
+                    return session_id
+            except Exception:
+                logger.warning(
+                    "No se pudo verificar la sesión ADK %s; se creará una nueva", session_id
+                )
+        session = await runner.session_service.create_session(app_name=APP_NAME, user_id=user_id)
+        if history:
+            await self._seed_history(session, history)
+        return session.id
+
+    async def _seed_history(self, session: Any, history: list[tuple[str, str]]) -> None:
+        """Inyecta turnos previos en una sesión nueva como eventos user/model.
+
+        Reconstruye el contexto del LLM desde la BD: cada mensaje de usuario va
+        como `role="user"` y cada respuesta del agente como `role="model"`.
+        """
+        from google.adk.events import Event
+        from google.genai import types
+
+        runner = self._get_runner()
+        agent_name = runner.agent.name
+        for role, content in history:
+            if not content:
+                continue
+            if role == "user":
+                event = Event(
+                    author="user",
+                    content=types.Content(role="user", parts=[types.Part(text=content)]),
+                )
+            else:
+                event = Event(
+                    author=agent_name,
+                    content=types.Content(role="model", parts=[types.Part(text=content)]),
+                )
+            await runner.session_service.append_event(session, event)
+
     async def ask(
         self,
         message: str,
