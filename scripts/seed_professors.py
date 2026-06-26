@@ -11,13 +11,32 @@ from app.db.session import AsyncSessionLocal
 from app.domains.admin.models import Course, Professor
 
 PROFESSORS = [
-    {"id": "10000000-0000-0000-0000-000000000001", "name": "DR. GARCIA LOPEZ MIGUEL"},
-    {"id": "10000000-0000-0000-0000-000000000002", "name": "DRA. MARTINEZ SILVA ROSA"},
-    {"id": "10000000-0000-0000-0000-000000000003", "name": "MG. TORRES QUISPE JOSE"},
-    {"id": "10000000-0000-0000-0000-000000000004", "name": "ING. VILLANUEVA CASTRO DIANA"},
-    {"id": "10000000-0000-0000-0000-000000000005", "name": "DR. ROJAS MENDOZA CARLOS"},
+    {
+        "id": "10000000-0000-0000-0000-000000000001",
+        "name": "DR. GARCIA LOPEZ MIGUEL",
+        "availability": ["Lun 08:00-10:00", "Mie 10:00-12:00"],
+    },
+    {
+        "id": "10000000-0000-0000-0000-000000000002",
+        "name": "DRA. MARTINEZ SILVA ROSA",
+        "availability": ["Mar 09:00-11:00", "Jue 14:00-16:00"],
+    },
+    {
+        "id": "10000000-0000-0000-0000-000000000003",
+        "name": "MG. TORRES QUISPE JOSE",
+        "availability": ["Lun 18:00-20:00", "Vie 16:00-18:00"],
+    },
+    {
+        "id": "10000000-0000-0000-0000-000000000004",
+        "name": "ING. VILLANUEVA CASTRO DIANA",
+        "availability": ["Mie 08:00-10:00", "Sab 09:00-11:00"],
+    },
+    {
+        "id": "10000000-0000-0000-0000-000000000005",
+        "name": "DR. ROJAS MENDOZA CARLOS",
+        "availability": ["Mar 18:00-20:00", "Jue 19:00-21:00"],
+    },
 ]
-
 COURSES = [
     {
         "id": "20000000-0000-0000-0000-000000000001",
@@ -91,9 +110,16 @@ async def main() -> None:
         for data in PROFESSORS:
             existing = await db.scalar(select(Professor).where(Professor.id == data["id"]))
             if existing is not None:
+                existing.availability = data["availability"]
                 print(f"= ya existe profesor: {data['name']}")
                 continue
-            db.add(Professor(id=data["id"], name=data["name"]))
+            db.add(
+                Professor(
+                    id=data["id"],
+                    name=data["name"],
+                    availability=data["availability"],
+                )
+            )
             print(f"+ creado profesor: {data['name']}")
 
         await db.flush()  # persiste profesores en la transacción antes de insertar cursos (FK)
