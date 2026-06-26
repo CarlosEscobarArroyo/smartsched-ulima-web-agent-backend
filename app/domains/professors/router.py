@@ -29,6 +29,14 @@ async def list_professors(
     return await service.list_professors(db)
 
 
+@router.get("/{professor_id}", response_model=ProfessorOut)
+async def get_professor(
+    professor_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> ProfessorOut:
+    return await service.get_professor(db, professor_id)
+
+
 @router.delete("/my-reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_my_review(
     review_id: str,

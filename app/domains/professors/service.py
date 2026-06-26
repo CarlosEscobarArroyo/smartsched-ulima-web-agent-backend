@@ -63,6 +63,13 @@ async def _build_professor_out(db: AsyncSession, professor_id: str, name: str) -
     )
 
 
+async def get_professor(db: AsyncSession, professor_id: str) -> ProfessorOut:
+    prof = await repository.get_professor_by_id(db, professor_id)
+    if prof is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profesor no encontrado")
+    return await _build_professor_out(db, prof.id, prof.name)
+
+
 async def list_professors(db: AsyncSession) -> list[ProfessorOut]:
     profs = await repository.list_professors(db)
     result = []
