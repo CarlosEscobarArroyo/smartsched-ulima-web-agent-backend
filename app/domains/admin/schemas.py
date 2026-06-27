@@ -42,6 +42,10 @@ class AdminProfessorOut(BaseModel):
     id: str
     name: str
     initials: str
+    department: str | None
+    degree: str | None
+    bio: str | None
+    email: str | None
     review_count: int
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -49,10 +53,32 @@ class AdminProfessorOut(BaseModel):
 
 class CreateAdminProfessorRequest(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    department: str | None = Field(default=None, max_length=120)
+    degree: str | None = Field(default=None, max_length=200)
+    bio: str | None = Field(default=None, max_length=1000)
+    email: str | None = Field(default=None, max_length=120)
 
 
 class UpdateAdminProfessorRequest(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    department: str | None = Field(default=None, max_length=120)
+    degree: str | None = Field(default=None, max_length=200)
+    bio: str | None = Field(default=None, max_length=1000)
+    email: str | None = Field(default=None, max_length=120)
+
+
+class BulkDeleteProfessorsRequest(BaseModel):
+    ids: list[str] = Field(min_length=1)
+
+
+class BulkDeleteProfessorsResult(BaseModel):
+    deleted: int
+    not_found: list[str]
+
+
+class ImportProfessorsResult(BaseModel):
+    created: int
+    errors: list[str]
 
 
 class AdminCourseOut(BaseModel):
