@@ -1,6 +1,5 @@
 """Schemas públicos de profesores y reseñas (US-21)."""
 
-from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +27,7 @@ class ProfessorOut(BaseModel):
     name: str
     course: str
     initials: str
+    availability: list[str]
     rating: float
     reviews: list[ReviewOut]
     courses: list[CourseOut]

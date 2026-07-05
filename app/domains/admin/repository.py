@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.admin.models import Course, Professor
+from app.domains.admin.models import Course, Professor, Review
 
 
 async def list_professors(db: AsyncSession, *, skip: int = 0, limit: int = 200) -> list[Professor]:
@@ -20,8 +20,23 @@ async def get_professor_by_id(db: AsyncSession, professor_id: str) -> Professor 
     return result.scalar_one_or_none()
 
 
-async def create_professor(db: AsyncSession, *, name: str) -> Professor:
-    professor = Professor(id=str(uuid.uuid4()), name=name)
+async def create_professor(
+    db: AsyncSession,
+    *,
+    name: str,
+    department: str | None = None,
+    degree: str | None = None,
+    bio: str | None = None,
+    email: str | None = None,
+) -> Professor:
+    professor = Professor(
+        id=str(uuid.uuid4()),
+        name=name,
+        department=department,
+        degree=degree,
+        bio=bio,
+        email=email,
+    )
     db.add(professor)
     await db.commit()
     await db.refresh(professor)
@@ -29,12 +44,23 @@ async def create_professor(db: AsyncSession, *, name: str) -> Professor:
 
 
 async def update_professor(
-    db: AsyncSession, professor_id: str, *, name: str
+    db: AsyncSession,
+    professor_id: str,
+    *,
+    name: str,
+    department: str | None = None,
+    degree: str | None = None,
+    bio: str | None = None,
+    email: str | None = None,
 ) -> Professor | None:
     professor = await get_professor_by_id(db, professor_id)
     if professor is None:
         return None
     professor.name = name
+    professor.department = department
+    professor.degree = degree
+    professor.bio = bio
+    professor.email = email
     await db.commit()
     await db.refresh(professor)
     return professor
@@ -49,8 +75,39 @@ async def delete_professor(db: AsyncSession, professor_id: str) -> bool:
     return True
 
 
+async def bulk_delete_professors(
+    db: AsyncSession, professor_ids: list[str]
+) -> tuple[int, list[str]]:
+    deleted = 0
+    not_found = []
+    for pid in professor_ids:
+        prof = await get_professor_by_id(db, pid)
+        if prof is None:
+            not_found.append(pid)
+        else:
+            await db.delete(prof)
+            deleted += 1
+    await db.commit()
+    return deleted, not_found
+
+
 async def count_professors(db: AsyncSession) -> int:
     result = await db.execute(select(func.count()).select_from(Professor))
+    return result.scalar_one()
+
+
+async def count_reviews_by_professor(db: AsyncSession) -> dict[str, int]:
+    """Conteo de reseñas agrupado por profesor (para el listado del panel admin)."""
+    result = await db.execute(
+        select(Review.professor_id, func.count()).group_by(Review.professor_id)
+    )
+    return {professor_id: count for professor_id, count in result.all()}
+
+
+async def count_reviews_for_professor(db: AsyncSession, professor_id: str) -> int:
+    result = await db.execute(
+        select(func.count()).select_from(Review).where(Review.professor_id == professor_id)
+    )
     return result.scalar_one()
 
 

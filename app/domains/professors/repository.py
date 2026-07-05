@@ -1,7 +1,7 @@
 """Acceso a datos de profesores y reseñas para endpoints públicos (US-21)."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -100,7 +100,7 @@ async def create_review(
         user_id=user_id,
         rating=rating,
         comment=comment,
-        created_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
     )
     db.add(review)
     try:

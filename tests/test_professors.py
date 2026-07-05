@@ -5,7 +5,6 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domains.admin import repository as admin_repo
-from app.domains.users.models import UserRole
 from tests.conftest import make_user
 
 
@@ -39,6 +38,7 @@ async def test_list_professors_con_datos(client: AsyncClient, db_session: AsyncS
     p = data[0]
     assert p["name"] == "Dr. García López"
     assert p["initials"] == "GL"
+    assert p["availability"] == []
     assert p["reviews"] == []
     assert p["rating"] == 0.0
     assert p["courses"] == []

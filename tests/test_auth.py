@@ -141,3 +141,35 @@ async def test_require_role_rejects_other_role():
     with pytest.raises(HTTPException) as exc:
         await checker(current=student)
     assert exc.value.status_code == 403
+
+
+async def test_delete_me_requires_auth(client, db_session):
+    """DELETE /auth/me sin token → 401."""
+    resp = await client.delete("/api/v1/auth/me")
+    assert resp.status_code == 401
+
+
+async def test_delete_me_elimina_la_cuenta(client, db_session):
+    """DELETE /auth/me elimina la cuenta: el token deja de valer y el login falla."""
+    await make_user(db_session)
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "alumno@ulima.edu.pe", "password": "Alumno123"},
+    )
+    token = login.json()["access_token"]
+
+    resp = await client.delete(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 204
+
+    me = await client.get(
+        "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert me.status_code == 401
+
+    relogin = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "alumno@ulima.edu.pe", "password": "Alumno123"},
+    )
+    assert relogin.status_code == 401

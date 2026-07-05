@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Integer, String, Uuid
+from sqlalchemy import Boolean, DateTime, Integer, String, Uuid
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 

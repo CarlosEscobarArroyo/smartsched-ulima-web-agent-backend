@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -45,6 +45,15 @@ async def update_me(
 ) -> UserOut:
     """Actualiza nombre y email del usuario autenticado (US-26)."""
     return await service.update_me(db, current, payload.name, payload.email)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_me(
+    current: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Elimina la cuenta del usuario autenticado y todos sus datos (cascada)."""
+    await service.delete_me(db, current)
 
 
 @router.post("/forgot-password", response_model=MessageResponse)

@@ -83,3 +83,47 @@ def send_reset_email(to_email: str, reset_link: str) -> None:
     except Exception:
         logger.exception("Error al enviar correo de restablecimiento a %s", to_email)
         raise
+
+
+def send_support_email(user_name: str, user_email: str, body: str) -> None:
+    """Reenvía un mensaje de "Contactar soporte" a la bandeja del equipo.
+
+    El destinatario es la propia cuenta SMTP configurada (bandeja de soporte).
+    En modo dev (sin SMTP configurado) solo lo deja en los logs.
+    """
+    settings = get_settings()
+
+    smtp_user = (settings.smtp_user or "").strip()
+    smtp_password = (settings.smtp_password or "").replace(" ", "")
+
+    if not smtp_user or not smtp_password:
+        logger.warning(
+            "[DEV] SMTP no configurado. Mensaje de soporte de %s <%s>: %s",
+            user_name,
+            user_email,
+            body,
+        )
+        return
+
+    message = EmailMessage()
+    message["Subject"] = f"[Soporte] Mensaje de {user_name} — SmartSched ULIMA"
+    message["From"] = f"{settings.smtp_from_name} <{smtp_user}>"
+    message["To"] = smtp_user
+    message["Reply-To"] = user_email
+    message.set_content(
+        f"Mensaje de soporte enviado desde SmartSched ULIMA\n\n"
+        f"Usuario: {user_name}\n"
+        f"Correo de contacto: {user_email}\n\n"
+        f"{body}\n"
+    )
+
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+            server.starttls(context=context)
+            server.login(smtp_user, smtp_password)
+            server.send_message(message)
+        logger.info("Mensaje de soporte reenviado a la bandeja %s", smtp_user)
+    except Exception:
+        # Best-effort: el mensaje ya quedó persistido en BD; no se propaga el error.
+        logger.exception("Error al reenviar mensaje de soporte de %s", user_email)

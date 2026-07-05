@@ -13,6 +13,7 @@ from app.domains.admin import models as admin_models  # noqa: F401
 from app.domains.auth import models as auth_models  # noqa: F401
 from app.domains.chat import models as chat_models  # noqa: F401
 from app.domains.schedules import models as schedules_models  # noqa: F401
+from app.domains.support import models as support_models  # noqa: F401
 from app.domains.users import models  # noqa: F401  (registra modelos en Base.metadata)
 
 # Importa aquí los models de cada dominio para que Alembic los detecte en autogenerate.

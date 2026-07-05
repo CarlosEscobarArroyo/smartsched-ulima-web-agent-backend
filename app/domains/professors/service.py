@@ -28,7 +28,9 @@ def _initials(name: str) -> str:
     return (first + second).upper()
 
 
-async def _build_professor_out(db: AsyncSession, professor_id: str, name: str) -> ProfessorOut:
+async def _build_professor_out(
+    db: AsyncSession, professor_id: str, name: str, availability: list[str] | None
+) -> ProfessorOut:
     review_rows = await repository.list_reviews_for_professor(db, professor_id)
     courses = await repository.list_courses_for_professor(db, professor_id)
 
@@ -57,6 +59,7 @@ async def _build_professor_out(db: AsyncSession, professor_id: str, name: str) -
         name=name,
         course=course_display,
         initials=_initials(name),
+        availability=availability or [],
         rating=avg_rating,
         reviews=reviews_out,
         courses=courses_out,
@@ -67,14 +70,14 @@ async def get_professor(db: AsyncSession, professor_id: str) -> ProfessorOut:
     prof = await repository.get_professor_by_id(db, professor_id)
     if prof is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profesor no encontrado")
-    return await _build_professor_out(db, prof.id, prof.name)
+    return await _build_professor_out(db, prof.id, prof.name, prof.availability)
 
 
 async def list_professors(db: AsyncSession) -> list[ProfessorOut]:
     profs = await repository.list_professors(db)
     result = []
     for p in profs:
-        result.append(await _build_professor_out(db, p.id, p.name))
+        result.append(await _build_professor_out(db, p.id, p.name, p.availability))
     return result
 
 

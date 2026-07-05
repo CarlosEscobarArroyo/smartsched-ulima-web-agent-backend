@@ -1,9 +1,8 @@
 """Tests del panel de administración (US-29/30/31): CRUD de usuarios y stats."""
 
-import pytest
 
-from tests.conftest import make_user
 from app.domains.users.models import UserRole
+from tests.conftest import make_user
 
 ADMIN_UUID = "00000000-0000-0000-0000-000000000002"
 
@@ -292,6 +291,131 @@ async def test_delete_professor_not_found(client, db_session):
         "/api/v1/admin/professors/ghost-id", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 404
+
+
+async def test_create_professor_con_campos_perfil(client, db_session):
+    token = await _admin_token(client, db_session)
+    resp = await client.post(
+        "/api/v1/admin/professors",
+        json={
+            "name": "Dra. Silva Rojas",
+            "department": "Ingeniería de Sistemas",
+            "degree": "Doctora en Computación",
+            "bio": "Investigadora en IA.",
+            "email": "dsilva@ulima.edu.pe",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["department"] == "Ingeniería de Sistemas"
+    assert data["degree"] == "Doctora en Computación"
+    assert data["bio"] == "Investigadora en IA."
+    assert data["email"] == "dsilva@ulima.edu.pe"
+
+
+async def test_update_professor_actualiza_campos_perfil(client, db_session):
+    token = await _admin_token(client, db_session)
+    create = await client.post(
+        "/api/v1/admin/professors",
+        json={"name": "Prof Perfil", "department": "Matemáticas"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    prof_id = create.json()["id"]
+    resp = await client.put(
+        f"/api/v1/admin/professors/{prof_id}",
+        json={
+            "name": "Prof Perfil",
+            "department": "Física",
+            "degree": "Magíster",
+            "bio": "Docente a tiempo completo.",
+            "email": "perfil@ulima.edu.pe",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["department"] == "Física"
+    assert data["degree"] == "Magíster"
+    assert data["email"] == "perfil@ulima.edu.pe"
+
+
+async def test_bulk_delete_professors(client, db_session):
+    token = await _admin_token(client, db_session)
+    ids = []
+    for name in ("Prof Uno Uno", "Prof Dos Dos"):
+        create = await client.post(
+            "/api/v1/admin/professors",
+            json={"name": name},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        ids.append(create.json()["id"])
+    resp = await client.request(
+        "DELETE",
+        "/api/v1/admin/professors/bulk",
+        json={"ids": [*ids, "ghost-id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["deleted"] == 2
+    assert data["not_found"] == ["ghost-id"]
+    listado = await client.get(
+        "/api/v1/admin/professors", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert listado.json() == []
+
+
+async def test_import_professors_csv(client, db_session):
+    token = await _admin_token(client, db_session)
+    csv_content = (
+        "nombre,departamento,grado,bio,email\n"
+        "Dr. Import Uno,Sistemas,Doctor,Bio uno,uno@ulima.edu.pe\n"
+        "X,,,,\n"
+        "Dra. Import Dos,Industrial,,,\n"
+    )
+    resp = await client.post(
+        "/api/v1/admin/professors/import-csv",
+        files={"file": ("profesores.csv", csv_content.encode(), "text/csv")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["created"] == 2
+    assert len(data["errors"]) == 1
+    assert "Fila 2" in data["errors"][0]
+    listado = await client.get(
+        "/api/v1/admin/professors", headers={"Authorization": f"Bearer {token}"}
+    )
+    nombres = {p["name"] for p in listado.json()}
+    assert nombres == {"Dr. Import Uno", "Dra. Import Dos"}
+    importado = next(p for p in listado.json() if p["name"] == "Dr. Import Uno")
+    assert importado["department"] == "Sistemas"
+    assert importado["email"] == "uno@ulima.edu.pe"
+
+
+async def test_list_professors_review_count_real(client, db_session):
+    admin_token = await _admin_token(client, db_session)
+    create = await client.post(
+        "/api/v1/admin/professors",
+        json={"name": "Prof Con Reseñas"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    prof_id = create.json()["id"]
+
+    student_token = await _student_token(client, db_session)
+    review = await client.post(
+        f"/api/v1/professors/{prof_id}/reviews",
+        json={"rating": 5, "comment": "Excelente profesor"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert review.status_code == 201
+
+    listado = await client.get(
+        "/api/v1/admin/professors", headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    prof = next(p for p in listado.json() if p["id"] == prof_id)
+    assert prof["review_count"] == 1
 
 
 # ---------------------------------------------------------------------------

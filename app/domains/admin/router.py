@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -12,9 +12,12 @@ from app.domains.admin.schemas import (
     AdminProfessorOut,
     AdminStatsOut,
     AdminUserOut,
+    BulkDeleteProfessorsRequest,
+    BulkDeleteProfessorsResult,
     CreateAdminCourseRequest,
     CreateAdminProfessorRequest,
     CreateAdminUserRequest,
+    ImportProfessorsResult,
     UpdateAdminCourseRequest,
     UpdateAdminProfessorRequest,
     UpdateAdminUserRequest,
@@ -88,6 +91,29 @@ async def create_professor(
     _current: AdminDep,
 ) -> AdminProfessorOut:
     return await service.create_professor(db, payload)
+
+
+@router.delete("/professors/bulk", response_model=BulkDeleteProfessorsResult)
+async def bulk_delete_professors(
+    payload: BulkDeleteProfessorsRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current: AdminDep,
+) -> BulkDeleteProfessorsResult:
+    return await service.bulk_delete_professors(db, payload.ids)
+
+
+@router.post(
+    "/professors/import-csv",
+    response_model=ImportProfessorsResult,
+    status_code=status.HTTP_200_OK,
+)
+async def import_professors_csv(
+    file: UploadFile,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current: AdminDep,
+) -> ImportProfessorsResult:
+    content = await file.read()
+    return await service.import_professors_csv(db, content)
 
 
 @router.put("/professors/{professor_id}", response_model=AdminProfessorOut)

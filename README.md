@@ -89,6 +89,34 @@ scripts/                   ← seed_users.py, smoke tests OCR
 
 ---
 
+## Inicio rápido
+
+```bash
+# 1. Entrar a la carpeta del backend
+cd smartsched-ulima-web-agent-backend
+
+# 2. Copiar variables de entorno y configurar DATABASE_URL y JWT_SECRET_KEY
+cp .env.example .env
+
+# 3. Instalar dependencias (requiere uv)
+uv sync
+
+# 4. Aplicar migraciones a la base de datos
+uv run alembic upgrade head
+
+# 5. (Opcional) Crear usuarios de prueba
+uv run python scripts/seed_users.py
+
+# 6. Levantar el servidor de desarrollo
+uv run uvicorn app.main:app --reload
+```
+
+API disponible en `http://localhost:8000` — docs interactivas en `http://localhost:8000/docs`.
+
+> Si no tienes `uv`: `pip install uv` o ver https://docs.astral.sh/uv/getting-started/installation/
+
+---
+
 ## Setup
 
 ### 1. Variables de entorno
