@@ -39,6 +39,35 @@ async def list_courses_for_professor(db: AsyncSession, professor_id: str) -> lis
     return list(result.scalars().all())
 
 
+async def list_reviews_for_professors(
+    db: AsyncSession, professor_ids: list[str]
+) -> list[tuple[Review, str]]:
+    """Devuelve (Review, user_name) para varios profesores en una sola consulta."""
+    if not professor_ids:
+        return []
+    result = await db.execute(
+        select(Review, User.name)
+        .join(User, User.id == Review.user_id)
+        .where(Review.professor_id.in_(professor_ids))
+        .order_by(Review.created_at.desc())
+    )
+    return list(result.tuples().all())
+
+
+async def list_courses_for_professors(
+    db: AsyncSession, professor_ids: list[str]
+) -> list[Course]:
+    """Devuelve los cursos de varios profesores en una sola consulta."""
+    if not professor_ids:
+        return []
+    result = await db.execute(
+        select(Course)
+        .where(Course.professor_id.in_(professor_ids))
+        .order_by(Course.name)
+    )
+    return list(result.scalars().all())
+
+
 async def list_reviews_by_user(
     db: AsyncSession, user_id: str
 ) -> list[tuple[Review, str, str]]:
