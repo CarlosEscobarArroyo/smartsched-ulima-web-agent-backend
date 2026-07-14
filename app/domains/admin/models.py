@@ -24,6 +24,9 @@ class Professor(Base):
     degree: Mapped[str | None] = mapped_column(String(200), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Foto del profesor (migración 0017): el archivo vive en GCS; aquí solo la ruta
+    # gs://. Si es NULL, el profesor no tiene foto y la ficha usa sus iniciales.
+    photo_gcs_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -45,7 +48,23 @@ class Course(Base):
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
     )
     professor_id: Mapped[str | None] = mapped_column(
-        Uuid(as_uuid=False), ForeignKey("professors.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(as_uuid=False),
+        ForeignKey("professors.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Campos usados por las fichas del agente (migración 0015). Se declaran aquí para
+    # que el modelo coincida con el esquema real de Neon/producción.
+    credits: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    difficulty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    course_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Sílabo (US-32): el PDF/DOC vive en GCS; aquí guardamos el nombre original
+    # (para mostrar/descargar), la ruta gs:// del objeto y cuándo se subió. Si
+    # `syllabus_uploaded_at` es NULL, el curso no tiene sílabo ("desactualizado").
+    syllabus_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    syllabus_gcs_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    syllabus_uploaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -10,6 +10,9 @@ dependencies = [
     "opentelemetry-instrumentation-google-genai>=0.1.0,<1.0.0",
     "gcsfs>=2024.11.0",
     "google-cloud-logging>=3.12.0,<4.0.0",
+    # Consulta de solo lectura a la BD (Neon) desde las tools del agente.
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
 ]
 requires-python = ">=3.11,<3.14"
 

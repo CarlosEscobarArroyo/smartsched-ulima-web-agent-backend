@@ -10,6 +10,7 @@ credenciales GCP (las pruebas que no usan el agente pueden mockear este cliente)
 """
 
 import logging
+import os
 from typing import Any
 
 from app.core.config import get_settings
@@ -33,11 +34,58 @@ def _event_text(event: Any) -> str:
     )
 
 
+# Tools que generan una ficha visual (one page). Su URL se asegura en el texto de la
+# respuesta para que el frontend la renderice como tarjeta embebida y se persista junto
+# al mensaje (así sobrevive a recargar la conversación). Ver ulima_agent/tools/fichas.py.
+_FICHA_TOOLS = {"generar_ficha_curso", "generar_ficha_profesor"}
+
+
+def _ficha_urls_from_event(event: Any) -> list[str]:
+    """URLs de ficha presentes en las function-responses de un evento ADK."""
+    urls: list[str] = []
+    try:
+        responses = event.get_function_responses()
+    except Exception:
+        return urls
+    for fr in responses or []:
+        if getattr(fr, "name", None) not in _FICHA_TOOLS:
+            continue
+        resp = getattr(fr, "response", None)
+        if isinstance(resp, dict) and resp.get("url"):
+            urls.append(str(resp["url"]))
+    return urls
+
+
+def _ensure_ficha_urls(reply: str, urls: list[str]) -> str:
+    """Garantiza que cada URL de ficha aparezca en el texto (sin duplicar).
+
+    No dependemos de que el LLM repita la URL: si no está en su respuesta, la añadimos.
+    El frontend detecta estas URLs y muestra la ficha como tarjeta dentro del chat.
+    """
+    for url in dict.fromkeys(urls):  # dedup preservando orden
+        if url and url not in reply:
+            reply = f"{reply}\n\n{url}" if reply else url
+    return reply
+
+
 class UlimaAgentClient:
-    """Envuelve el `InMemoryRunner` del agente. Singleton ligero por proceso."""
+    """Facade (estructural) sobre el subsistema de ADK.
+
+    Expone una interfaz simple (`create_session`/`ensure_session`/`ask`) y esconde
+    todo el subsistema: `InMemoryRunner`, `session_service`, `Event`, `types.Content`,
+    el bucle `run_async` y la rehidratación de historial. La única instancia por
+    proceso (Singleton) se crea abajo como `_agent_client`.
+    """
 
     def __init__(self) -> None:
         self._settings = get_settings()
+        # Puente settings -> entorno: las tools del agente (paquete `ulima_agent`,
+        # que NO importa `app`) leen DATABASE_URL de os.environ para consultar Neon.
+        # En Cloud Run ya es una env var real; en local viene de .env vía
+        # pydantic-settings, que no la exporta, así que la exponemos aquí.
+        # setdefault: una env var real (Cloud Run) siempre gana.
+        if self._settings.database_url:
+            os.environ.setdefault("DATABASE_URL", self._settings.database_url)
         self._runner: Any | None = None
 
     def _get_runner(self) -> Any:
@@ -129,13 +177,16 @@ class UlimaAgentClient:
 
         try:
             reply = ""
+            ficha_urls: list[str] = []
             async for event in runner.run_async(
                 user_id=user_id, session_id=session_id, new_message=content
             ):
                 text = _event_text(event)
                 if text:
                     reply = text
-            return reply or "El agente no devolvió respuesta. Intenta reformular tu consulta."
+                ficha_urls.extend(_ficha_urls_from_event(event))
+            reply = reply or "El agente no devolvió respuesta. Intenta reformular tu consulta."
+            return _ensure_ficha_urls(reply, ficha_urls)
         except Exception:
             logger.exception("Error al consultar al agente (Vertex AI)")
             return (
@@ -144,8 +195,12 @@ class UlimaAgentClient:
             )
 
 
+# Factory / provider (creacional): función de acceso usada como dependencia
+# (FastAPI Depends). Devuelve el singleton y permite sobrescribirlo en tests.
 def get_ulima_agent() -> UlimaAgentClient:
     return _agent_client
 
 
+# Singleton (creacional): una única instancia por proceso, expuesta vía
+# get_ulima_agent(). El InMemoryRunner de ADK de adentro se crea perezosamente.
 _agent_client = UlimaAgentClient()

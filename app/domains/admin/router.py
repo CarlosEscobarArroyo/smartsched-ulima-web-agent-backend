@@ -1,8 +1,10 @@
 """Router del panel de administración (US-29/30/31)."""
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -135,6 +137,23 @@ async def delete_professor(
     await service.delete_professor(db, professor_id)
 
 
+@router.post("/professors/{professor_id}/photo", response_model=AdminProfessorOut)
+async def upload_professor_photo(
+    professor_id: str,
+    file: UploadFile,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current: AdminDep,
+) -> AdminProfessorOut:
+    data = await file.read()
+    return await service.set_professor_photo(
+        db,
+        professor_id,
+        file_name=file.filename or "foto",
+        content_type=file.content_type,
+        data=data,
+    )
+
+
 # ─── Courses ───────────────────────────────────────────────────────────────
 
 
@@ -171,3 +190,35 @@ async def delete_course(
     _current: AdminDep,
 ) -> None:
     await service.delete_course(db, course_id)
+
+
+@router.post("/courses/{course_id}/syllabus", response_model=AdminCourseOut)
+async def upload_course_syllabus(
+    course_id: str,
+    file: UploadFile,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current: AdminDep,
+) -> AdminCourseOut:
+    data = await file.read()
+    return await service.set_course_syllabus(
+        db,
+        course_id,
+        file_name=file.filename or "silabo",
+        content_type=file.content_type,
+        data=data,
+        uploaded_at=datetime.now(UTC),
+    )
+
+
+@router.get("/courses/{course_id}/syllabus")
+async def download_course_syllabus(
+    course_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _current: AdminDep,
+) -> Response:
+    data, content_type, file_name = await service.get_course_syllabus(db, course_id)
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
+    )

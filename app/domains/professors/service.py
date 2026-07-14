@@ -1,12 +1,11 @@
 """Lógica de negocio de profesores y reseñas (US-21)."""
 
 import re
-from collections import defaultdict
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domains.admin.models import Course, Review
+from app.domains.admin.models import Course, Professor, Review
 from app.domains.professors import repository
 from app.domains.professors.schemas import (
     CourseOut,
@@ -30,13 +29,12 @@ def _initials(name: str) -> str:
     return (first + second).upper()
 
 
-def _professor_out_from_rows(
-    professor_id: str,
-    name: str,
-    availability: list[str] | None,
+def _assemble_professor_out(
+    professor: Professor,
     review_rows: list[tuple[Review, str]],
     courses: list[Course],
 ) -> ProfessorOut:
+    """Construye el ProfessorOut a partir de datos ya cargados (sin tocar la BD)."""
     reviews_out = [
         ReviewOut(
             id=r.id,
@@ -58,56 +56,44 @@ def _professor_out_from_rows(
     course_display = courses[0].name if courses else ""
 
     return ProfessorOut(
-        id=professor_id,
-        name=name,
+        id=professor.id,
+        name=professor.name,
         course=course_display,
-        initials=_initials(name),
-        availability=availability or [],
+        initials=_initials(professor.name),
+        department=professor.department,
+        degree=professor.degree,
+        bio=professor.bio,
+        email=professor.email,
+        availability=professor.availability or [],
         rating=avg_rating,
         reviews=reviews_out,
         courses=courses_out,
     )
 
 
-async def _build_professor_out(
-    db: AsyncSession, professor_id: str, name: str, availability: list[str] | None
-) -> ProfessorOut:
-    review_rows = await repository.list_reviews_for_professor(db, professor_id)
-    courses = await repository.list_courses_for_professor(db, professor_id)
-    return _professor_out_from_rows(professor_id, name, availability, review_rows, courses)
-
-
 async def get_professor(db: AsyncSession, professor_id: str) -> ProfessorOut:
     prof = await repository.get_professor_by_id(db, professor_id)
     if prof is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profesor no encontrado")
-    return await _build_professor_out(db, prof.id, prof.name, prof.availability)
+    review_rows = await repository.list_reviews_for_professor(db, prof.id)
+    courses = await repository.list_courses_for_professor(db, prof.id)
+    return _assemble_professor_out(prof, review_rows, courses)
 
 
 async def list_professors(db: AsyncSession) -> list[ProfessorOut]:
-    """Lista todos los profesores. Trae reseñas y cursos en 2 consultas batch (evita N+1)."""
+    """Lista todos los profesores con sus reseñas y cursos.
+
+    Usa 3 queries fijas (profesores + todas las reseñas + todos los cursos) y arma
+    la respuesta en memoria, en vez del N+1 previo (1 + 2·N round-trips a la BD).
+    """
     profs = await repository.list_professors(db)
-    professor_ids = [p.id for p in profs]
-
-    all_review_rows = await repository.list_reviews_for_professors(db, professor_ids)
-    all_courses = await repository.list_courses_for_professors(db, professor_ids)
-
-    reviews_by_professor: dict[str, list[tuple[Review, str]]] = defaultdict(list)
-    for review, user_name in all_review_rows:
-        reviews_by_professor[review.professor_id].append((review, user_name))
-
-    courses_by_professor: dict[str, list[Course]] = defaultdict(list)
-    for course in all_courses:
-        if course.professor_id is not None:
-            courses_by_professor[course.professor_id].append(course)
-
+    reviews_by_prof = await repository.list_all_reviews_with_users(db)
+    courses_by_prof = await repository.list_all_courses_by_professor(db)
     return [
-        _professor_out_from_rows(
-            p.id,
-            p.name,
-            p.availability,
-            reviews_by_professor.get(p.id, []),
-            courses_by_professor.get(p.id, []),
+        _assemble_professor_out(
+            p,
+            reviews_by_prof.get(p.id, []),
+            courses_by_prof.get(p.id, []),
         )
         for p in profs
     ]

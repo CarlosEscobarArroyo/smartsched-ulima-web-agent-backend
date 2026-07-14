@@ -191,3 +191,45 @@ async def test_dos_usuarios_pueden_reseniar_mismo_profesor(
     prof = resp.json()[0]
     assert len(prof["reviews"]) == 2
     assert prof["rating"] == 4.0
+
+
+@pytest.mark.asyncio
+async def test_list_professors_agrupa_por_profesor(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Con varios profesores, cada reseña y curso debe quedar en su profesor.
+
+    Blinda el refactor que eliminó el N+1 (agrupado en memoria por professor_id).
+    """
+    await make_user(db_session)
+    token = await _login(client, "alumno@ulima.edu.pe", "Alumno123")
+
+    # Nombres elegidos para que el orden alfabético del endpoint sea determinista.
+    prof_a = await _create_professor(db_session, "Alfa Uno")
+    prof_b = await _create_professor(db_session, "Beta Dos")
+
+    await admin_repo.create_course(
+        db_session, code="AAA100", name="Curso A", level="1", prerequisites=[], professor_id=prof_a
+    )
+    await admin_repo.create_course(
+        db_session, code="BBB200", name="Curso B", level="2", prerequisites=[], professor_id=prof_b
+    )
+
+    await client.post(
+        f"/api/v1/professors/{prof_a}/reviews",
+        json={"rating": 5, "comment": "Solo para Alfa"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    data = (await client.get("/api/v1/professors")).json()
+    by_id = {p["id"]: p for p in data}
+
+    assert len(data) == 2
+    assert by_id[prof_a]["courses"][0]["code"] == "AAA100"
+    assert by_id[prof_b]["courses"][0]["code"] == "BBB200"
+    # La reseña solo pertenece a Alfa; Beta no debe heredarla.
+    assert len(by_id[prof_a]["reviews"]) == 1
+    assert by_id[prof_a]["reviews"][0]["comment"] == "Solo para Alfa"
+    assert by_id[prof_a]["rating"] == 5.0
+    assert by_id[prof_b]["reviews"] == []
+    assert by_id[prof_b]["rating"] == 0.0

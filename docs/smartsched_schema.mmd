@@ -1,0 +1,102 @@
+---
+title: SmartSched-Ulima — Esquema de Base de Datos (Neon / PostgreSQL)
+---
+erDiagram
+    users ||--o{ saved_schedules       : "guarda"
+    users ||--o{ conversations         : "inicia"
+    users ||--o{ reviews               : "escribe"
+    users ||--o{ password_reset_tokens : "solicita"
+    users ||--o{ support_messages      : "envia"
+    conversations ||--o{ messages      : "contiene"
+    professors ||--o{ reviews          : "recibe"
+    professors ||--o{ courses          : "dicta"
+
+    users {
+        uuid        id              PK "identificador"
+        varchar     email           UK "correo institucional unico"
+        varchar     name            "nombre completo"
+        varchar     password_hash   "bcrypt"
+        user_role   role            "student | admin"
+        integer     failed_attempts "intentos fallidos de login"
+        timestamptz locked_until    "bloqueo 3 intentos / 15 min"
+        boolean     is_active        "cuenta activa"
+        timestamptz created_at
+    }
+
+    password_reset_tokens {
+        uuid        id          PK
+        uuid        user_id     FK
+        varchar     token       UK "un solo uso"
+        timestamptz expires_at  "expira 60 min"
+        boolean     used
+        timestamptz created_at
+    }
+
+    saved_schedules {
+        uuid        id            PK
+        uuid        user_id       FK
+        varchar     name          "nombre del horario"
+        jsonb       schedule_data "snapshot del horario"
+        timestamptz created_at
+    }
+
+    conversations {
+        uuid        id             PK
+        uuid        user_id        FK
+        varchar     title
+        varchar     mode
+        varchar     adk_session_id "sesion ADK (efimera)"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    messages {
+        uuid        id              PK
+        uuid        conversation_id FK
+        varchar     role            "user | assistant"
+        text        content
+        timestamptz created_at
+    }
+
+    professors {
+        uuid        id           PK
+        varchar     name
+        jsonb       availability "franjas de disponibilidad"
+        varchar     department
+        varchar     degree
+        varchar     bio
+        varchar     email
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    courses {
+        uuid        id                   PK
+        varchar     code                 UK
+        varchar     name
+        varchar     level                "ciclo / nivel"
+        jsonb       prerequisites        "codigos prerrequisito"
+        uuid        professor_id         FK "titular (opcional)"
+        varchar     syllabus_file_name   "nombre del silabo (GCS)"
+        varchar     syllabus_gcs_path    "ruta gs:// del objeto"
+        timestamptz syllabus_uploaded_at "NULL = sin silabo"
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    reviews {
+        uuid        id           PK
+        uuid        professor_id FK "unico por (profesor, usuario)"
+        uuid        user_id      FK
+        integer     rating       "1..5"
+        text        comment
+        timestamptz created_at
+    }
+
+    support_messages {
+        uuid        id         PK
+        uuid        user_id    FK
+        varchar     email
+        text        message
+        timestamptz created_at
+    }

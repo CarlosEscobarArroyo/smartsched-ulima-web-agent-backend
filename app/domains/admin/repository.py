@@ -1,6 +1,7 @@
 """Acceso a datos de profesores y cursos (US-32)."""
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -181,6 +182,37 @@ async def delete_course(db: AsyncSession, course_id: str) -> bool:
     await db.delete(course)
     await db.commit()
     return True
+
+
+async def set_course_syllabus(
+    db: AsyncSession,
+    course_id: str,
+    *,
+    file_name: str,
+    gcs_path: str,
+    uploaded_at: datetime,
+) -> Course | None:
+    course = await get_course_by_id(db, course_id)
+    if course is None:
+        return None
+    course.syllabus_file_name = file_name
+    course.syllabus_gcs_path = gcs_path
+    course.syllabus_uploaded_at = uploaded_at
+    await db.commit()
+    await db.refresh(course)
+    return course
+
+
+async def set_professor_photo(
+    db: AsyncSession, professor_id: str, *, gcs_path: str
+) -> Professor | None:
+    professor = await get_professor_by_id(db, professor_id)
+    if professor is None:
+        return None
+    professor.photo_gcs_path = gcs_path
+    await db.commit()
+    await db.refresh(professor)
+    return professor
 
 
 async def count_courses(db: AsyncSession) -> int:

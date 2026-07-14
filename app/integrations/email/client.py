@@ -48,6 +48,8 @@ Si no solicitaste esto, ignora este correo.
 """
 
 
+# Adapter (estructural): adapta la API de `smtplib` (stdlib) a funciones simples del
+# dominio (`send_reset_email`/`send_support_email`), escondiendo SMTP/STARTTLS/EmailMessage.
 def send_reset_email(to_email: str, reset_link: str) -> None:
     settings = get_settings()
 

@@ -46,6 +46,7 @@ class AdminProfessorOut(BaseModel):
     degree: str | None
     bio: str | None
     email: str | None
+    has_photo: bool = False
     review_count: int
     updated_at: datetime
     model_config = {"from_attributes": True}
@@ -89,6 +90,9 @@ class AdminCourseOut(BaseModel):
     prerequisites: list[str]
     professor_id: str | None
     professor_name: str | None
+    syllabus_status: Literal["updated", "outdated"]
+    syllabus_file_name: str | None
+    syllabus_updated_at: datetime | None
     updated_at: datetime
     model_config = {"from_attributes": True}
 

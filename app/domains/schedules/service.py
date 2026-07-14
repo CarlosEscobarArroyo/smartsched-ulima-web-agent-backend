@@ -27,6 +27,10 @@ from app.integrations.generator.generator import (
     generate_schedules,
 )
 
+# Adapter (estructural): traduce el contrato del FE (strings `horarios`/`blockedSlots`)
+# a los objetos del generador puro (`ClassSection`/`TimeBlock`) y reconstruye el shape
+# que el FE espera. `generate()` es la entrada del adaptador; los `_parse_*` hacen la
+# conversión de interfaz en ambos sentidos.
 MAX_OPTIONS = 20
 GENERATION_TIMEOUT_SECONDS = 120
 

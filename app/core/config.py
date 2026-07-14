@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     reset_token_expire_minutes: int = 60
 
 
+# Singleton (creacional) vía @lru_cache: una única instancia de Settings por
+# proceso (se lee el entorno/.env una sola vez y se reutiliza en cada llamada).
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

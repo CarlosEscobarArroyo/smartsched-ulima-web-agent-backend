@@ -21,7 +21,9 @@ async def get_professor_by_id(db: AsyncSession, professor_id: str) -> Professor 
     return result.scalar_one_or_none()
 
 
-async def list_reviews_for_professor(db: AsyncSession, professor_id: str) -> list[tuple[Review, str]]:
+async def list_reviews_for_professor(
+    db: AsyncSession, professor_id: str
+) -> list[tuple[Review, str]]:
     """Devuelve lista de (Review, user_name) para un profesor."""
     result = await db.execute(
         select(Review, User.name)
@@ -39,33 +41,39 @@ async def list_courses_for_professor(db: AsyncSession, professor_id: str) -> lis
     return list(result.scalars().all())
 
 
-async def list_reviews_for_professors(
-    db: AsyncSession, professor_ids: list[str]
-) -> list[tuple[Review, str]]:
-    """Devuelve (Review, user_name) para varios profesores en una sola consulta."""
-    if not professor_ids:
-        return []
+async def list_all_reviews_with_users(db: AsyncSession) -> dict[str, list[tuple[Review, str]]]:
+    """Todas las reseñas (con nombre de usuario) agrupadas por professor_id.
+
+    Evita el N+1 de ``list_professors``: una sola query en vez de una por profesor.
+    Dentro de cada grupo se conserva el orden por ``created_at`` descendente.
+    """
     result = await db.execute(
         select(Review, User.name)
         .join(User, User.id == Review.user_id)
-        .where(Review.professor_id.in_(professor_ids))
-        .order_by(Review.created_at.desc())
+        .order_by(Review.professor_id, Review.created_at.desc())
     )
-    return list(result.tuples().all())
+    grouped: dict[str, list[tuple[Review, str]]] = {}
+    for review, user_name in result.tuples().all():
+        grouped.setdefault(review.professor_id, []).append((review, user_name))
+    return grouped
 
 
-async def list_courses_for_professors(
-    db: AsyncSession, professor_ids: list[str]
-) -> list[Course]:
-    """Devuelve los cursos de varios profesores en una sola consulta."""
-    if not professor_ids:
-        return []
+async def list_all_courses_by_professor(db: AsyncSession) -> dict[str, list[Course]]:
+    """Todos los cursos con profesor asignado agrupados por professor_id.
+
+    Complementa a ``list_all_reviews_with_users`` para eliminar el N+1: una sola
+    query en vez de una por profesor. Dentro de cada grupo se ordena por nombre.
+    """
     result = await db.execute(
         select(Course)
-        .where(Course.professor_id.in_(professor_ids))
-        .order_by(Course.name)
+        .where(Course.professor_id.is_not(None))
+        .order_by(Course.professor_id, Course.name)
     )
-    return list(result.scalars().all())
+    grouped: dict[str, list[Course]] = {}
+    for course in result.scalars().all():
+        # professor_id no es None por el filtro anterior.
+        grouped.setdefault(course.professor_id, []).append(course)  # type: ignore[arg-type]
+    return grouped
 
 
 async def list_reviews_by_user(

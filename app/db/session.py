@@ -10,6 +10,9 @@ settings = get_settings()
 # Normaliza la URL (quita params estilo libpq) y activa SSL en hosts remotos (Neon).
 _engine_url, _connect_args = build_engine_url(settings.database_url)
 
+# Singleton (creacional): el engine y el sessionmaker se crean UNA sola vez al
+# importar el módulo y se comparten en todo el proceso. `get_db()` abre una sesión
+# efímera por request desde este pool compartido.
 engine = create_async_engine(
     _engine_url,
     echo=settings.debug,

@@ -63,7 +63,12 @@ Reglas:
 
 
 class CourseStructurer:
-    """Llama a Gemini (multimodal) para estructurar las imágenes. Singleton ligero por proceso."""
+    """Facade (estructural) sobre el SDK de `google.genai`/Vertex.
+
+    Expone `structure(images)` y esconde el subsistema del SDK (`genai.Client`,
+    `types.Part`, `GenerateContentConfig`, `response_schema`, parseo de la respuesta).
+    La única instancia por proceso (Singleton) se crea abajo como `_structurer`.
+    """
 
     def __init__(self) -> None:
         self._client: object | None = None
@@ -110,8 +115,12 @@ class CourseStructurer:
         return json.loads(response.text)
 
 
+# Singleton (creacional): una única instancia por proceso, expuesta vía
+# get_course_structurer(). El cliente genai/Vertex de adentro se crea perezosamente.
 _structurer = CourseStructurer()
 
 
+# Factory / provider (creacional): función de acceso usada como dependencia
+# (FastAPI Depends). Devuelve el singleton y permite sobrescribirlo en tests.
 def get_course_structurer() -> CourseStructurer:
     return _structurer

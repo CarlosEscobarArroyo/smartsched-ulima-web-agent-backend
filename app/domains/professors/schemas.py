@@ -27,6 +27,10 @@ class ProfessorOut(BaseModel):
     name: str
     course: str
     initials: str
+    department: str | None
+    degree: str | None
+    bio: str | None
+    email: str | None
     availability: list[str]
     rating: float
     reviews: list[ReviewOut]

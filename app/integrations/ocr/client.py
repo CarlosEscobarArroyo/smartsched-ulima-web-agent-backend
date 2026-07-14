@@ -14,6 +14,8 @@ from google.protobuf.json_format import MessageToDict
 from app.core.config import get_settings
 
 
+# Singleton (creacional) vía @lru_cache: un único ImageAnnotatorClient de Cloud
+# Vision por proceso. En tests: `_get_client.cache_clear()` antes de patchear.
 @lru_cache
 def _get_client() -> vision.ImageAnnotatorClient:
     settings = get_settings()
@@ -25,6 +27,8 @@ def _get_client() -> vision.ImageAnnotatorClient:
     return vision.ImageAnnotatorClient()
 
 
+# Adapter (estructural): adapta el SDK de Cloud Vision a una función simple del
+# dominio (`detect_document_text`), traduciendo bytes → `vision.Image` → dict.
 def detect_document_text(image_bytes: bytes) -> dict:
     client = _get_client()
     image = vision.Image(content=image_bytes)

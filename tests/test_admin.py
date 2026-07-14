@@ -528,3 +528,133 @@ async def test_create_course_with_professor(client, db_session):
     data = resp.json()
     assert data["professor_id"] == prof_id
     assert data["professor_name"] == "Dr. Prueba"
+
+
+# ---------------------------------------------------------------------------
+# Sílabo del curso (US-32) — GCS mockeado
+# ---------------------------------------------------------------------------
+
+
+async def _create_course(client, token, *, code="SYL101", name="Curso Sílabo") -> str:
+    resp = await client.post(
+        "/api/v1/admin/courses",
+        json={"code": code, "name": name, "level": "1", "prerequisites": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return resp.json()["id"]
+
+
+async def test_course_default_syllabus_outdated(client, db_session):
+    token = await _admin_token(client, db_session)
+    resp = await client.post(
+        "/api/v1/admin/courses",
+        json={"code": "NEW101", "name": "Nuevo", "level": "1", "prerequisites": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    data = resp.json()
+    assert data["syllabus_status"] == "outdated"
+    assert data["syllabus_file_name"] is None
+    assert data["syllabus_updated_at"] is None
+
+
+async def test_upload_syllabus_requires_admin(client, db_session):
+    student = await _student_token(client, db_session)
+    resp = await client.post(
+        "/api/v1/admin/courses/ghost/syllabus",
+        files={"file": ("silabo.pdf", b"%PDF-1.4 data", "application/pdf")},
+        headers={"Authorization": f"Bearer {student}"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_upload_syllabus_invalid_type(client, db_session):
+    token = await _admin_token(client, db_session)
+    course_id = await _create_course(client, token)
+    resp = await client.post(
+        f"/api/v1/admin/courses/{course_id}/syllabus",
+        files={"file": ("notas.txt", b"texto plano", "text/plain")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_upload_syllabus_course_not_found(client, db_session):
+    token = await _admin_token(client, db_session)
+    resp = await client.post(
+        "/api/v1/admin/courses/ghost-id/syllabus",
+        files={"file": ("silabo.pdf", b"%PDF-1.4 data", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_upload_syllabus_ok(client, db_session, monkeypatch):
+    from app.integrations.bucket import bucket
+
+    captured: dict[str, object] = {}
+
+    def fake_upload(course_id, extension, data, content_type):
+        captured.update(
+            course_id=course_id, extension=extension, data=data, content_type=content_type
+        )
+        return f"gs://test-bucket/syllabi/{course_id}{extension}"
+
+    monkeypatch.setattr(bucket, "upload_syllabus", fake_upload)
+
+    token = await _admin_token(client, db_session)
+    course_id = await _create_course(client, token)
+    resp = await client.post(
+        f"/api/v1/admin/courses/{course_id}/syllabus",
+        files={"file": ("silabo-2026.pdf", b"%PDF-1.4 contenido", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["syllabus_status"] == "updated"
+    assert data["syllabus_file_name"] == "silabo-2026.pdf"
+    assert data["syllabus_updated_at"] is not None
+    assert captured["extension"] == ".pdf"
+    assert captured["course_id"] == course_id
+
+    # El listado también refleja el estado actualizado.
+    lst = await client.get(
+        "/api/v1/admin/courses", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert lst.json()[0]["syllabus_status"] == "updated"
+
+
+async def test_download_syllabus_missing(client, db_session):
+    token = await _admin_token(client, db_session)
+    course_id = await _create_course(client, token)
+    resp = await client.get(
+        f"/api/v1/admin/courses/{course_id}/syllabus",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_download_syllabus_ok(client, db_session, monkeypatch):
+    from app.integrations.bucket import bucket
+
+    monkeypatch.setattr(
+        bucket, "upload_syllabus", lambda *a, **k: "gs://test-bucket/syllabi/x.pdf"
+    )
+    monkeypatch.setattr(
+        bucket, "download_from_gcs", lambda path: (b"%PDF-1.4 bytes", "application/pdf")
+    )
+
+    token = await _admin_token(client, db_session)
+    course_id = await _create_course(client, token)
+    await client.post(
+        f"/api/v1/admin/courses/{course_id}/syllabus",
+        files={"file": ("silabo.pdf", b"%PDF-1.4 x", "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp = await client.get(
+        f"/api/v1/admin/courses/{course_id}/syllabus",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.content == b"%PDF-1.4 bytes"
+    assert resp.headers["content-type"].startswith("application/pdf")
+    assert "silabo.pdf" in resp.headers["content-disposition"]

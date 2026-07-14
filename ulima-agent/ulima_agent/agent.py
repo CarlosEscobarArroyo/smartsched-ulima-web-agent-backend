@@ -16,11 +16,22 @@
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.models import Gemini
+from google.adk.tools import FunctionTool
 from google.genai import types
 
 import os
 
 from .prompts import prompts_dict
+from .tools import (
+    buscar_profesor,
+    descargar_silabo,
+    detalle_curso,
+    generar_ficha_curso,
+    generar_ficha_profesor,
+    listar_cursos,
+    prerrequisitos_de,
+    resenas_de_profesor,
+)
 
 # Proyecto GCP OBLIGATORIO (ver CLAUDE.md): Project ID "ulima-agent"
 # (nombre visible "smartsched-ulima", número 563034868757). Nunca usar otro.
@@ -45,7 +56,20 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=MODEL_TEMPERATURE,
     ),
-    tools=[],
+    # Tools tipadas de solo lectura sobre la BD (Neon): profesores, cursos,
+    # dificultad, prerrequisitos y reseñas. Ver ulima_agent/tools/academic.py.
+    # Las dos últimas generan una FICHA VISUAL (one page HTML) y devuelven una URL
+    # servida por GET /api/v1/fichas/{id}. Ver ulima_agent/tools/fichas.py.
+    tools=[
+        FunctionTool(func=buscar_profesor),
+        FunctionTool(func=resenas_de_profesor),
+        FunctionTool(func=listar_cursos),
+        FunctionTool(func=detalle_curso),
+        FunctionTool(func=prerrequisitos_de),
+        FunctionTool(func=generar_ficha_curso),
+        FunctionTool(func=generar_ficha_profesor),
+        FunctionTool(func=descargar_silabo),
+    ],
 )
 
 app = App(

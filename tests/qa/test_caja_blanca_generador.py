@@ -26,6 +26,9 @@ Se cuenta 1 + (número de puntos de decisión). Puntos de decisión en la funci�
     D9  if any(section.overlaps(c) for c in chosen): (poda: solapamiento)
 
     Complejidad ciclomática V(G) = 1 + 9 = 10   →   10 > 4  ✔
+    (este conteo manual incluye la función anidada `backtrack`; `radon cc` reporta
+    6 para `generate_schedules` sola, ya que no desciende al closure. En cualquiera
+    de las dos lecturas supera el umbral de 4.)
 
 Cada test de abajo indica, en su docstring, el/los punto(s) de decisión que
 cubre. En conjunto ejercitan los 10 caminos.
