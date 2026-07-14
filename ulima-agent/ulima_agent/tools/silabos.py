@@ -13,16 +13,24 @@ import os
 
 from ..db import fetch_all
 
+# Mismo emparejamiento de nombres que las tools de texto y las fichas: todas las
+# palabras, sin importar orden ni acentos. Antes un `c.name ILIKE '%...%'` fallaba con
+# tildes ("investigacion" no casaba con "Investigación") o con el orden de las palabras.
+from .academic import _name_where
+
 logger = logging.getLogger(__name__)
 
 _ERROR_MSG = "No se pudo consultar el sílabo en este momento."
 
-# Busca el curso por código exacto o por nombre parcial; prioriza el match de código.
-_SQL_SILABO = """
+
+def _sql_silabo(where_nombre: str) -> str:
+    """SELECT del sílabo: coincide por código exacto O por nombre (todas las palabras,
+    sin orden ni acentos; `where_nombre` lo arma `_name_where`)."""
+    return f"""
 SELECT c.id AS id, c.code AS codigo, c.name AS nombre,
        c.syllabus_file_name AS archivo, c.syllabus_gcs_path AS gcs_path
 FROM courses c
-WHERE lower(c.code) = lower(:q) OR c.name ILIKE :like
+WHERE lower(c.code) = lower(:q) OR ({where_nombre})
 ORDER BY (lower(c.code) = lower(:q)) DESC, c.name
 LIMIT 1
 """
@@ -56,8 +64,9 @@ async def descargar_silabo(curso: str) -> dict:
     if not curso:
         return {"encontrado": False, "mensaje": "Indica el código o nombre del curso."}
     try:
-        params = {"q": curso, "like": f"%{curso}%"}
-        filas = await fetch_all(_SQL_SILABO, params)
+        where_nombre, p_nombre = _name_where("c.name", curso)
+        params = {"q": curso, **p_nombre}
+        filas = await fetch_all(_sql_silabo(where_nombre), params)
     except Exception:
         logger.exception("descargar_silabo falló")
         return {"encontrado": False, "error": _ERROR_MSG}
